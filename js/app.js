@@ -1,5 +1,42 @@
 AUTH.requireLogin();
 
+/** ================= חיפוש גלובלי (בראש הדף) ================= */
+
+let globalSearchCache = null;
+let globalSearchTimer = null;
+
+function runGlobalSearch() {
+  clearTimeout(globalSearchTimer);
+  globalSearchTimer = setTimeout(async () => {
+    const q = document.getElementById('globalSearch').value.trim().toLowerCase();
+    const resultsEl = document.getElementById('globalSearchResults');
+    if (q.length < 2) { resultsEl.style.display = 'none'; return; }
+    if (!globalSearchCache) globalSearchCache = await AUTH.rpc('people_for_me', {}) || [];
+    const matches = globalSearchCache.filter(p => {
+      const hay = [p.first_name, p.last_name, p.id_number, p.phone, p.phone2, p.street, p.city]
+        .concat(p.aliases || []).filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    }).slice(0, 10);
+    if (!matches.length) {
+      resultsEl.innerHTML = '<div style="padding:12px; color:var(--muted); font-size:.85rem">אין תוצאות</div>';
+    } else {
+      resultsEl.innerHTML = matches.map(p =>
+        `<div style="padding:10px 14px; border-bottom:1px solid var(--line); color:var(--ink)">` +
+        `<b>${p.first_name || ''} ${p.last_name || ''}</b>` +
+        `<div style="font-size:.78rem; color:var(--muted)">${[p.id_number, p.phone, p.street].filter(Boolean).join(' · ')}</div></div>`
+      ).join('');
+    }
+    resultsEl.style.display = 'block';
+  }, 250);
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#globalSearch') && !e.target.closest('#globalSearchResults')) {
+    const r = document.getElementById('globalSearchResults');
+    if (r) r.style.display = 'none';
+  }
+});
+
 document.querySelectorAll('.tab').forEach(t => {
   t.onclick = () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -23,8 +60,12 @@ async function submitPerson() {
     id_number: val('f_id_number') || null, birth_date: val('f_birth_date') || null,
     bar_mitzva_date: val('f_bar_mitzva_date') || null,
     edah: val('f_edah'), gender: val('f_gender') || null,
-    street: val('f_street'), city: val('f_city'), notes: val('f_notes'),
-    source: 'manual'
+    street: val('f_street'), city: val('f_city'), school_class: val('f_school_class'),
+    phone: val('f_phone'), phone2: val('f_phone2'), email: val('f_email'),
+    role_in_family: val('f_role'), institution: val('f_institution'),
+    housing_status: val('f_housing'),
+    aliases: val('f_aliases') ? val('f_aliases').split(',').map(s => s.trim()).filter(Boolean) : [],
+    notes: val('f_notes'), source: 'manual'
   };
   try {
     const created = await AUTH.api('people', {
@@ -35,10 +76,14 @@ async function submitPerson() {
       await linkSpouses(newId, spouseId);
     }
     showMsg('addMsg', 'נשמר בהצלחה' + (spouseId ? ' וקושר לבן/בת הזוג' : ''), 'ok');
-    ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city','f_notes']
+    ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city',
+     'f_school_class','f_phone','f_phone2','f_email','f_institution','f_aliases','f_notes']
       .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f_role').value = '';
+    document.getElementById('f_housing').value = '';
     document.getElementById('f_spouse').value = '';
     loadPeopleIntoSelects();
+    globalSearchCache = null;
   } catch (e) {
     showMsg('addMsg', 'שגיאה: ' + e.message, 'err');
   }
@@ -118,7 +163,7 @@ function calcAge(birthDateStr) {
 async function refreshFamiliesList() {
   const el = document.getElementById('familiesList');
   const families = await AUTH.api('families?select=*') || [];
-  const allPeople = await AUTH.api('people?select=*') || [];
+  const allPeople = await AUTH.rpc('people_for_me', {}) || [];
   if (!families.length) {
     el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-house"></i> אין עדיין כרטיסי משפחה</div>';
     return;
@@ -331,23 +376,29 @@ function applyAgePreset(minAge, maxAge) {
 }
 
 async function runSearch() {
-  const params = ['select=*'];
-  if (val('q_street')) params.push(`street=eq.${encodeURIComponent(val('q_street'))}`);
-  if (val('q_gender')) params.push(`gender=eq.${val('q_gender')}`);
+  // דרך people_for_me() ולא ישירות ל-people, כדי שמשתמש 'limited' יקבל בפועל
+  // רק את השדות/שורות שהוא רשאי לראות (לא רק "מוסתר" בקוד לקוח).
+  let people;
+  try {
+    people = await AUTH.rpc('people_for_me', {}) || [];
+  } catch (e) {
+    document.getElementById('searchResults').innerHTML = `<div class="msg err">${e.message}</div>`;
+    return;
+  }
+
+  if (val('q_street')) people = people.filter(p => p.street === val('q_street'));
+  if (val('q_gender')) people = people.filter(p => p.gender === val('q_gender'));
+  if (val('q_class')) people = people.filter(p => (p.school_class || '').includes(val('q_class')));
   const minAge = val('q_minAge') ? Number(val('q_minAge')) : null;
   const maxAge = val('q_maxAge') ? Number(val('q_maxAge')) : null;
   if (minAge || maxAge) {
     const { minBirth, maxBirth } = ageToDates(minAge, maxAge);
-    if (minBirth) params.push(`birth_date=gte.${minBirth}`);
-    if (maxBirth) params.push(`birth_date=lte.${maxBirth}`);
-  }
-
-  let people;
-  try {
-    people = await AUTH.api('people?' + params.join('&'));
-  } catch (e) {
-    document.getElementById('searchResults').innerHTML = `<div class="msg err">${e.message}</div>`;
-    return;
+    people = people.filter(p => {
+      if (!p.birth_date) return false;
+      if (minBirth && p.birth_date < minBirth) return false;
+      if (maxBirth && p.birth_date > maxBirth) return false;
+      return true;
+    });
   }
 
   const cat = val('q_category');
@@ -357,18 +408,48 @@ async function runSearch() {
     people = people.filter(p => allowedIds.has(p.id));
   }
 
+  lastSearchResults = people;
   const el = document.getElementById('searchResults');
   if (!people.length) {
     el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-inbox"></i> לא נמצאו תוצאות</div>';
     return;
   }
-  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות</h3>` +
-    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th></tr>';
+  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות ` +
+    `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
+    `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button></h3>` +
+    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th></tr>';
   people.forEach(p => {
-    html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td></tr>`;
+    html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td></tr>`;
   });
   html += '</table></div></div>';
   el.innerHTML = html;
+}
+
+let lastSearchResults = [];
+
+function exportResultsToCsv() {
+  if (!lastSearchResults.length) return;
+  const cols = ['first_name','last_name','id_number','birth_date','gender','street','city',
+    'school_class','phone','phone2','email','housing_status','notes'];
+  const headerLabels = ['שם פרטי','שם משפחה','ת"ז','תאריך לידה','מגדר','רחוב','עיר',
+    'כיתה','טלפון','טלפון נוסף','מייל','סטטוס דיור','הערות'];
+  const rows = [headerLabels.join(',')];
+  lastSearchResults.forEach(p => {
+    rows.push(cols.map(c => csvEscape(p[c])).join(','));
+  });
+  const csv = '﻿' + rows.join('\r\n'); // BOM כדי שאקסל יזהה עברית נכון
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'anshei-kesher-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
 /** ================= קטגוריות ================= */
