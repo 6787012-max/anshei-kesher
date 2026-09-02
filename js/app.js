@@ -1,5 +1,16 @@
 AUTH.requireLogin();
 
+/** ================= בטיחות פלט: escape ל-HTML ================= */
+// כל טקסט חופשי שהמשתמש (או קובץ CSV חיצוני) הזין ומוצג דרך innerHTML
+// חייב לעבור כאן קודם — אחרת <img src=x onerror=...> בשדה כמו "הערות"
+// או "רחוב" רץ אצל כל מי שיציג את הרשומה (ראה REVIEW_FINDINGS.md #10).
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 /** ================= OCR ספח/ת"ז — רץ בדפדפן בלבד, בלי API בתשלום ================= */
 
 async function runOcr() {
@@ -132,13 +143,40 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.panel === 'auditPanel') refreshAuditLog();
     if (t.dataset.panel === 'usersPanel') refreshUsersList();
     if (t.dataset.panel === 'listPanel') refreshFullList();
+    if (t.dataset.panel === 'familiesPanel') refreshFamiliesList();
   };
 });
+
+// טאבים שממילא חסומים ב-RLS למשתמש 'limited' (כתיבה/ניהול/יומן ביקורת) —
+// מוסתרים לגמרי במקום שיוצגו עם "אין נתונים" מטעה (ראה REVIEW_FINDINGS.md #38/#36).
+let myAccessLevel = 'full';
+const FULL_ONLY_PANELS = ['addPanel', 'familiesPanel', 'importPanel', 'categoriesPanel', 'usersPanel', 'auditPanel'];
+
+async function initAccessLevel() {
+  try {
+    myAccessLevel = await AUTH.rpc('my_access_level', {});
+  } catch (e) { myAccessLevel = 'full'; }
+  if (myAccessLevel !== 'full') {
+    FULL_ONLY_PANELS.forEach(panelId => {
+      const tab = document.querySelector(`.tab[data-panel="${panelId}"]`);
+      if (tab) tab.style.display = 'none';
+    });
+  }
+}
+initAccessLevel();
 
 /** ================= משתמשים והרשאות ================= */
 
 function toggleLimitedFields() {
   document.getElementById('u_limitedFields').style.display = val('u_level') === 'full' ? 'none' : 'block';
+}
+
+function toggleShowPassword() {
+  const input = document.getElementById('u_password');
+  const eye = document.getElementById('u_password_eye');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  eye.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
 }
 
 async function callAdminFn(payload) {
@@ -188,11 +226,11 @@ async function refreshUsersList() {
   const users = await AUTH.api('app_users?select=*');
   if (!users || !users.length) { el.innerHTML = '<p style="color:var(--muted)">אין משתמשים</p>'; return; }
   el.innerHTML = '<table><tr><th>אימייל</th><th>רמת גישה</th><th>שדות מותרים</th><th>קטגוריות מותרות</th><th></th></tr>' +
-    users.map(u => `<tr><td>${u.email}</td><td>${u.access_level}</td>` +
-      `<td style="font-size:.78rem">${(u.allowed_fields||[]).join(', ')}</td>` +
-      `<td style="font-size:.78rem">${(u.allowed_categories||[]).join(', ')}</td>` +
+    users.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.access_level)}</td>` +
+      `<td style="font-size:.78rem">${esc((u.allowed_fields||[]).join(', '))}</td>` +
+      `<td style="font-size:.78rem">${esc((u.allowed_categories||[]).join(', '))}</td>` +
       `<td>${u.email === AUTH.getSession().user.email ? '' :
-        `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="deleteUser('${u.user_id}','${u.email}')"><i class="bi bi-trash"></i></button>`}</td></tr>`
+        `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="deleteUser('${u.user_id}','${esc(u.email)}')"><i class="bi bi-trash"></i></button>`}</td></tr>`
     ).join('') + '</table>';
 }
 
@@ -237,8 +275,17 @@ async function refreshAuditLog() {
 /** ================= דשבורד ================= */
 
 async function refreshDashboard() {
+  if (!AUTH.getSession()) return; // עוד לפני login (redirect בתהליך) — לא לנסות לרנדר
   const stats = await AUTH.rpc('dashboard_stats', {});
   const cardsEl = document.getElementById('dashboardCards');
+  if (!stats) return;
+  if (stats.restricted) {
+    cardsEl.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-lock"></i> הדשבורד זמין רק למשתמשי full</div>';
+    ['classBreakdown', 'yearBreakdown', 'upcomingEvents'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.innerHTML = '';
+    });
+    return;
+  }
   const cards = [
     { icon: 'bi-people-fill', label: 'סה"כ אנשי קשר', value: stats.total_people },
     { icon: 'bi-house-heart', label: 'משפחות', value: stats.total_families },
@@ -282,7 +329,7 @@ async function refreshDashboard() {
       .filter(e => e.days_until >= 0 && e.days_until <= 90);
     eventsEl.innerHTML = events.length ? events.map(e =>
       `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line)">
-        <span><i class="bi ${EVENT_ICONS[e.event_type]}" style="color:var(--accent)"></i> ${e.full_name} — ${EVENT_LABELS[e.event_type]}</span>
+        <span><i class="bi ${EVENT_ICONS[e.event_type]}" style="color:var(--accent)"></i> ${esc(e.full_name)} — ${esc(EVENT_LABELS[e.event_type])}</span>
         <b>${e.days_until === 0 ? 'היום!' : 'בעוד ' + e.days_until + ' ימים'}</b></div>`
     ).join('') : '<p style="color:var(--muted)">אין אירועים ב-90 הימים הקרובים</p>';
   }
@@ -297,19 +344,53 @@ function showMsg(elId, text, cls) {
 /** ================= הוספה ידנית ================= */
 
 async function submitPerson() {
+  if (!val('f_first_name').trim() || !val('f_last_name').trim()) {
+    showMsg('addMsg', 'שם פרטי ושם משפחה הם שדות חובה', 'err');
+    return;
+  }
   const spouseId = val('f_spouse') || null;
   const person = {
-    first_name: val('f_first_name'), last_name: val('f_last_name'),
+    first_name: val('f_first_name').trim(), last_name: val('f_last_name').trim(),
     id_number: val('f_id_number') || null, birth_date: val('f_birth_date') || null,
     bar_mitzva_date: val('f_bar_mitzva_date') || null,
     edah: val('f_edah'), gender: val('f_gender') || null,
     street: val('f_street'), city: val('f_city'), school_class: val('f_school_class'),
     phone: val('f_phone'), phone2: val('f_phone2'), email: val('f_email'),
     role_in_family: val('f_role'), institution: val('f_institution'),
+    marriage_date: val('f_marriage_date') || null, marital_status: val('f_marital_status'),
     housing_status: val('f_housing'),
     aliases: val('f_aliases') ? val('f_aliases').split(',').map(s => s.trim()).filter(Boolean) : [],
     notes: val('f_notes'), source: 'manual'
   };
+
+  // בדיקת כפילויות גם כאן, לא רק בייבוא CSV — אותה פונקציה, אותו עיקרון:
+  // המערכת לא מנחשת בשבילך (REVIEW_FINDINGS.md #24).
+  try {
+    const candidates = await AUTH.rpc('find_fuzzy_candidates', {
+      p_first_name: person.first_name, p_last_name: person.last_name, p_id_number: person.id_number
+    });
+    const exactIdMatch = person.id_number && candidates.find(c => c.id_number === person.id_number);
+    if (exactIdMatch) {
+      if (!confirm(`כבר קיים איש קשר עם אותה ת"ז: ${exactIdMatch.first_name} ${exactIdMatch.last_name}.\nלהמשיך ולעדכן את הרשומה הקיימת (משלים שדות חסרים בלבד)?`)) return;
+      const merged = {};
+      Object.keys(person).forEach(k => { if (!exactIdMatch[k] && person[k]) merged[k] = person[k]; });
+      await AUTH.api(`people?id=eq.${exactIdMatch.id}`, { method: 'PATCH', body: JSON.stringify(merged) });
+      logAudit('merge', 'person', exactIdMatch.id, { via: 'manual_add', fields_changed: Object.keys(merged) });
+      showMsg('addMsg', 'עודכנה הרשומה הקיימת (לא נוצרה כפולה)', 'ok');
+      globalSearchCache = null;
+      return;
+    }
+    if (candidates.length) {
+      const c = candidates[0];
+      if (!confirm(`נמצא איש קשר עם שם דומה: ${c.first_name} ${c.last_name}. האם זה אותו אדם? (אישור=לא מוסיפים, ביטול=בכל זאת רשומה נפרדת)`)) {
+        // המשתמש בחר "ביטול" = בכל זאת רשומה נפרדת — ממשיכים לשמירה למטה.
+      } else {
+        showMsg('addMsg', 'לא נשמר — לך לטאב "ייבוא רשימה" למסך השוואה מלא, או ערוך את הרשומה הקיימת ב"רשימה מלאה".', 'err');
+        return;
+      }
+    }
+  } catch (e) { /* אם בדיקת הכפילויות נכשלת, לא חוסמים את השמירה עצמה */ }
+
   try {
     const created = await AUTH.api('people', {
       method: 'POST', body: JSON.stringify(person), headers: { 'Prefer': 'return=representation' }
@@ -321,36 +402,26 @@ async function submitPerson() {
     logAudit('create', 'person', newId, { name: person.first_name + ' ' + person.last_name });
     showMsg('addMsg', 'נשמר בהצלחה' + (spouseId ? ' וקושר לבן/בת הזוג' : ''), 'ok');
     ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city',
-     'f_school_class','f_phone','f_phone2','f_email','f_institution','f_aliases','f_notes']
+     'f_school_class','f_phone','f_phone2','f_email','f_institution','f_marriage_date','f_aliases','f_notes']
       .forEach(id => document.getElementById(id).value = '');
     document.getElementById('f_role').value = '';
     document.getElementById('f_housing').value = '';
+    document.getElementById('f_marital_status').value = '';
     document.getElementById('f_spouse').value = '';
     loadPeopleIntoSelects();
     globalSearchCache = null;
   } catch (e) {
-    showMsg('addMsg', 'שגיאה: ' + e.message, 'err');
+    showMsg('addMsg', 'שגיאה: ' + esc(e.message), 'err');
   }
 }
 
 /** ================= משפחות: קישור בני זוג + כרטיס משפחה ================= */
 
 // מקשר שני אנשים כבני זוג: spouse_id הדדי + אותו family_id (יוצר family אם צריך).
+// רץ כטרנזקציה אחת ב-Postgres (link_spouses RPC) — לא 4 קריאות REST נפרדות,
+// כדי למנוע מרוץ תנאים בין שני משתמשים שמקשרים בו-זמנית (REVIEW_FINDINGS.md #12).
 async function linkSpouses(personId, spouseId) {
-  const spouse = (await AUTH.api(`people?id=eq.${spouseId}&select=family_id`))[0];
-  let familyId = spouse && spouse.family_id;
-  if (!familyId) {
-    const fam = await AUTH.api('families', {
-      method: 'POST', body: JSON.stringify({ head_of_family_id: spouseId }),
-      headers: { 'Prefer': 'return=representation' }
-    });
-    familyId = fam[0].id;
-    await AUTH.api(`people?id=eq.${spouseId}`, { method: 'PATCH', body: JSON.stringify({ family_id: familyId }) });
-  }
-  await AUTH.api(`people?id=eq.${personId}`, { method: 'PATCH',
-    body: JSON.stringify({ spouse_id: spouseId, family_id: familyId }) });
-  await AUTH.api(`people?id=eq.${spouseId}`, { method: 'PATCH',
-    body: JSON.stringify({ spouse_id: personId }) });
+  return AUTH.rpc('link_spouses', { p_person_id: personId, p_spouse_id: spouseId });
 }
 
 async function loadPeopleIntoSelects() {
@@ -376,6 +447,7 @@ async function createFamily() {
   if (!headId) { showMsg('famMsg', 'יש לבחור ראש משפחה', 'err'); return; }
   try {
     const head = (await AUTH.api(`people?id=eq.${headId}&select=family_id`))[0];
+    if (!head) { showMsg('famMsg', 'האדם שנבחר לא נמצא — רענן את הדף ונסה שוב', 'err'); return; }
     let familyId = head.family_id;
     if (!familyId) {
       const fam = await AUTH.api('families', {
@@ -405,15 +477,22 @@ function calcAge(birthDateStr) {
 }
 
 async function addRelation() {
-  const a = val('rel_a'), b = val('rel_b'), type = val('rel_type');
+  const a = val('rel_a'), b = val('rel_b');
+  let type = val('rel_type');
+  if (type === 'אחר') {
+    const free = val('rel_type_free').trim();
+    if (!free) { showMsg('relMsg', 'יש לתאר את סוג הקשר', 'err'); return; }
+    type = free;
+  }
   if (!a || !b || a === b) { showMsg('relMsg', 'יש לבחור שני אנשים שונים', 'err'); return; }
   try {
     await AUTH.api('relations', { method: 'POST', body: JSON.stringify({ person_a: a, person_b: b, relation_type: type }) });
     logAudit('create', 'relation', null, { a, b, type });
     showMsg('relMsg', 'הקשר נוסף', 'ok');
+    document.getElementById('rel_type_free').value = '';
     refreshRelationsList();
   } catch (e) {
-    showMsg('relMsg', 'שגיאה: ' + e.message, 'err');
+    showMsg('relMsg', 'שגיאה: ' + esc(e.message), 'err');
   }
 }
 
@@ -423,9 +502,9 @@ async function refreshRelationsList() {
   const rels = await AUTH.api('relations?select=*') || [];
   if (!rels.length) { el.innerHTML = ''; return; }
   const people = await AUTH.rpc('people_for_me', {}) || [];
-  const byId = Object.fromEntries(people.map(p => [p.id, `${p.first_name} ${p.last_name}`]));
+  const byId = Object.fromEntries(people.map(p => [p.id, `${esc(p.first_name)} ${esc(p.last_name)}`]));
   el.innerHTML = '<div class="table-wrap"><table><tr><th>אדם א׳</th><th>קשר</th><th>אדם ב׳</th></tr>' +
-    rels.map(r => `<tr><td>${byId[r.person_a] || '?'}</td><td>${r.relation_type}</td><td>${byId[r.person_b] || '?'}</td></tr>`).join('') +
+    rels.map(r => `<tr><td>${byId[r.person_a] || '?'}</td><td>${esc(r.relation_type)}</td><td>${byId[r.person_b] || '?'}</td></tr>`).join('') +
     '</table></div>';
 }
 
@@ -451,10 +530,10 @@ async function refreshInteractionsList() {
   const rows = await AUTH.api('interactions?select=*&order=created_at.desc&limit=30') || [];
   if (!rows.length) { el.innerHTML = ''; return; }
   const people = await AUTH.rpc('people_for_me', {}) || [];
-  const byId = Object.fromEntries(people.map(p => [p.id, `${p.first_name} ${p.last_name}`]));
+  const byId = Object.fromEntries(people.map(p => [p.id, `${esc(p.first_name)} ${esc(p.last_name)}`]));
   el.innerHTML = '<div class="table-wrap"><table><tr><th>עם מי</th><th>סוג</th><th>תוכן</th><th>מתי</th></tr>' +
-    rows.map(r => `<tr><td>${byId[r.person_id] || '?'}</td><td>${INTERACTION_LABELS[r.kind] || r.kind}</td>` +
-      `<td>${r.content}</td><td style="font-size:.78rem">${new Date(r.created_at).toLocaleDateString('he-IL')}</td></tr>`).join('') +
+    rows.map(r => `<tr><td>${byId[r.person_id] || '?'}</td><td>${esc(INTERACTION_LABELS[r.kind] || r.kind)}</td>` +
+      `<td>${esc(r.content)}</td><td style="font-size:.78rem">${esc(new Date(r.created_at).toLocaleDateString('he-IL'))}</td></tr>`).join('') +
     '</table></div>';
 }
 
@@ -477,9 +556,9 @@ async function refreshFamiliesList() {
 
     const card = document.createElement('div');
     card.className = 'card';
-    let html = `<h3><i class="bi bi-house-heart"></i> משפחת ${head ? head.last_name : '?'}</h3>`;
-    html += `<p><b>${head ? head.first_name + ' ' + head.last_name : '—'}</b>` +
-      (spouse ? ` <i class="bi bi-heart-fill" style="color:var(--accent); font-size:.7rem"></i> <b>${spouse.first_name} ${spouse.last_name}</b>` : '') + '</p>';
+    let html = `<h3><i class="bi bi-house-heart"></i> משפחת ${esc(head ? head.last_name : '?')}</h3>`;
+    html += `<p><b>${head ? esc(head.first_name) + ' ' + esc(head.last_name) : '—'}</b>` +
+      (spouse ? ` <i class="bi bi-heart-fill" style="color:var(--accent); font-size:.7rem"></i> <b>${esc(spouse.first_name)} ${esc(spouse.last_name)}</b>` : '') + '</p>';
 
     if (children.length) {
       html += '<div class="table-wrap"><table><tr><th>ילד/ה</th><th>תאריך לידה</th><th>גיל</th><th>בר/בת מצווה</th></tr>';
@@ -487,8 +566,8 @@ async function refreshFamiliesList() {
         .slice()
         .sort((a, b) => (b.birth_date || '').localeCompare(a.birth_date || ''))
         .forEach(c => {
-          html += `<tr><td>${c.first_name} ${c.last_name}</td><td>${c.birth_date || '-'}</td>` +
-            `<td>${calcAge(c.birth_date) ?? '-'}</td><td>${c.bar_mitzva_date || '-'}</td></tr>`;
+          html += `<tr><td>${esc(c.first_name)} ${esc(c.last_name)}</td><td>${esc(c.birth_date) || '-'}</td>` +
+            `<td>${calcAge(c.birth_date) ?? '-'}</td><td>${esc(c.bar_mitzva_date) || '-'}</td></tr>`;
         });
       html += '</table></div>';
     } else {
@@ -522,34 +601,66 @@ function openAddChildForm(card, familyId) {
     <button class="primary cf_save"><i class="bi bi-check2"></i> שמור ילד/ה</button>`;
   card.appendChild(form);
   form.querySelector('.cf_save').onclick = async () => {
+    if (!form.querySelector('.cf_first').value.trim()) return;
     const lastName = card.querySelector('h3').textContent.replace('משפחת ', '').trim();
     const child = {
-      first_name: form.querySelector('.cf_first').value,
+      first_name: form.querySelector('.cf_first').value.trim(),
       last_name: lastName,
       gender: form.querySelector('.cf_gender').value || null,
       birth_date: form.querySelector('.cf_birth').value || null,
       bar_mitzva_date: form.querySelector('.cf_bm').value || null,
       family_id: familyId, source: 'manual'
     };
-    await AUTH.api('people', { method: 'POST', body: JSON.stringify(child) });
+    const created = await AUTH.api('people', { method: 'POST', body: JSON.stringify(child), headers: { 'Prefer': 'return=representation' } });
+    logAudit('create', 'person', created && created[0] && created[0].id, { via: 'add_child', family_id: familyId });
+    globalSearchCache = null;
+    loadPeopleIntoSelects();
     refreshFamiliesList();
   };
 }
 
 /** ================= ייבוא + מיפוי עמודות + דדופליקציה ================= */
 
+// מפצל שורת CSV/TSV אחת לתאים, עם תמיכה בגרשיים ("תא, עם פסיק") לפי תקן CSV.
+function splitDelimitedLine(line, delim) {
+  const cells = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { cur += c; }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === delim) {
+      cells.push(cur.trim()); cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
 function parseCsvRaw(text) {
-  const lines = text.trim().split('\n').filter(l => l.trim());
-  const headers = lines[0].split(',').map(h => h.trim());
-  const rows = lines.slice(1).map(line => line.split(',').map(v => v.trim()));
+  const lines = text.replace(/\r\n/g, '\n').trim().split('\n').filter(l => l.trim());
+  if (!lines.length) return { headers: [], rows: [] };
+  // זיהוי אוטומטי: הדבקה מאקסל/Sheets יוצרת TSV (טאבים), לא CSV (פסיקים).
+  const delim = (lines[0].match(/\t/g) || []).length >= (lines[0].match(/,/g) || []).length ? '\t' : ',';
+  const headers = splitDelimitedLine(lines[0], delim);
+  const rows = lines.slice(1).map(line => splitDelimitedLine(line, delim));
   return { headers, rows };
 }
 
 const IMPORT_TARGET_FIELDS = [
   ['', '— התעלם מהעמודה —'], ['first_name', 'שם פרטי'], ['last_name', 'שם משפחה'],
-  ['id_number', 'ת"ז'], ['birth_date', 'תאריך לידה'], ['street', 'רחוב'], ['city', 'עיר'],
-  ['edah', 'עדה'], ['gender', 'מגדר'], ['phone', 'טלפון'], ['phone2', 'טלפון נוסף'],
-  ['email', 'מייל'], ['school_class', 'כיתה'], ['notes', 'הערות']
+  ['id_number', 'ת"ז'], ['birth_date', 'תאריך לידה'], ['bar_mitzva_date', 'בר/בת מצווה'],
+  ['street', 'רחוב'], ['city', 'עיר'], ['edah', 'עדה'], ['gender', 'מגדר'],
+  ['phone', 'טלפון'], ['phone2', 'טלפון נוסף'], ['email', 'מייל'], ['school_class', 'כיתה'],
+  ['role_in_family', 'תפקיד במשפחה'], ['institution', 'מוסד לימודים/כולל'],
+  ['marriage_date', 'תאריך נישואין'], ['marital_status', 'סטטוס אישי'],
+  ['housing_status', 'סטטוס דיור'], ['aliases', 'כינויים (מופרד בפסיק)'], ['notes', 'הערות']
 ];
 
 // ניחוש אוטומטי לפי מילות מפתח בשם העמודה — נקודת התחלה, המשתמש יכול לתקן.
@@ -557,11 +668,15 @@ function guessFieldForHeader(header) {
   const h = header.toLowerCase();
   const guesses = [
     [/first.?name|שם פרטי|^שם$/, 'first_name'], [/last.?name|שם משפחה|משפחה/, 'last_name'],
-    [/id.?number|ת"?ז|תעודת זהות/, 'id_number'], [/birth|לידה/, 'birth_date'],
+    [/id.?number|ת"?ז|תעודת זהות/, 'id_number'],
+    [/bar.?mitzva|בר מצווה|בת מצווה/, 'bar_mitzva_date'], [/birth|לידה/, 'birth_date'],
     [/street|רחוב|כתובת/, 'street'], [/city|עיר|יישוב/, 'city'],
     [/edah|עדה/, 'edah'], [/gender|מגדר|מין/, 'gender'],
     [/phone2|טלפון נוסף/, 'phone2'], [/phone|טלפון|נייד/, 'phone'],
-    [/email|מייל|דוא/, 'email'], [/class|כיתה/, 'school_class'], [/note|הער/, 'notes']
+    [/email|מייל|דוא/, 'email'], [/class|כיתה/, 'school_class'],
+    [/role|תפקיד/, 'role_in_family'], [/institution|מוסד|כולל/, 'institution'],
+    [/marriage|נישואין/, 'marriage_date'], [/marital|סטטוס אישי|מצב אישי/, 'marital_status'],
+    [/housing|דיור/, 'housing_status'], [/alias|כינוי/, 'aliases'], [/note|הער/, 'notes']
   ];
   for (const [re, field] of guesses) if (re.test(h)) return field;
   return '';
@@ -578,9 +693,9 @@ function startColumnMapping() {
   csvParsed.headers.forEach((h, i) => {
     const sample = (csvParsed.rows[0] && csvParsed.rows[0][i]) || '';
     const guess = guessFieldForHeader(h);
-    html += `<tr><td><b>${h}</b></td><td style="color:var(--muted)">${sample}</td><td>` +
+    html += `<tr><td><b>${esc(h)}</b></td><td style="color:var(--muted)">${esc(sample)}</td><td>` +
       `<select class="mapSelect" data-col="${i}">` +
-      IMPORT_TARGET_FIELDS.map(([val_, label]) => `<option value="${val_}" ${val_ === guess ? 'selected' : ''}>${label}</option>`).join('') +
+      IMPORT_TARGET_FIELDS.map(([val_, label]) => `<option value="${val_}" ${val_ === guess ? 'selected' : ''}>${esc(label)}</option>`).join('') +
       '</select></td></tr>';
   });
   html += '</table></div>' +
@@ -594,7 +709,11 @@ function applyMappingToRows() {
   selects.forEach(s => { if (s.value) colToField[Number(s.dataset.col)] = s.value; });
   return csvParsed.rows.map(cells => {
     const row = {};
-    Object.keys(colToField).forEach(colIdx => { row[colToField[colIdx]] = cells[colIdx] || ''; });
+    Object.keys(colToField).forEach(colIdx => {
+      const field = colToField[colIdx];
+      const raw = cells[colIdx] || '';
+      row[field] = field === 'aliases' ? raw.split(',').map(s => s.trim()).filter(Boolean) : raw;
+    });
     return row;
   });
 }
@@ -609,6 +728,7 @@ let pendingReview = [];
 async function runImport(rows, source) {
   pendingReview = [];
   let autoMerged = 0, imported = 0;
+  const autoMergedNames = [];
 
   for (const row of rows) {
     let candidates = [];
@@ -627,9 +747,14 @@ async function runImport(rows, source) {
       const merged = {};
       Object.keys(row).forEach(k => { if (!exactIdMatch[k] && row[k]) merged[k] = row[k]; });
       if (Object.keys(merged).length) {
+        await AUTH.api('merge_log', { method: 'POST', body: JSON.stringify({
+          target_person: exactIdMatch.id, before_snapshot: exactIdMatch, merged_from: row
+        }) });
         await AUTH.api(`people?id=eq.${exactIdMatch.id}`, { method: 'PATCH', body: JSON.stringify(merged) });
+        logAudit('merge', 'person', exactIdMatch.id, { via: 'exact_id_match', fields_changed: Object.keys(merged) });
       }
       autoMerged++;
+      autoMergedNames.push(`${exactIdMatch.first_name} ${exactIdMatch.last_name}`);
       continue;
     }
 
@@ -641,15 +766,19 @@ async function runImport(rows, source) {
     row.source = source;
     row.id_number = row.id_number || null;
     row.birth_date = row.birth_date || null;
-    await AUTH.api('people', { method: 'POST', body: JSON.stringify(row) });
+    const created = await AUTH.api('people', { method: 'POST', body: JSON.stringify(row), headers: { 'Prefer': 'return=representation' } });
+    logAudit('create', 'person', created && created[0] && created[0].id, { via: 'import', source });
     imported++;
   }
 
   await AUTH.api('import_log', { method: 'POST',
     body: JSON.stringify({ source, row_count: rows.length }) });
 
+  globalSearchCache = null;
   showMsg('importMsg',
-    `יובאו: ${imported} | מוזגו אוטומטית (ת"ז זהה): ${autoMerged} | דורש בדיקה ידנית: ${pendingReview.length}`,
+    `יובאו: ${imported} | מוזגו אוטומטית (ת"ז זהה): ${autoMerged}` +
+    (autoMergedNames.length ? ` (${autoMergedNames.map(esc).join(', ')})` : '') +
+    ` | דורש בדיקה ידנית: ${pendingReview.length}`,
     'ok');
   renderReview();
 }
@@ -675,14 +804,14 @@ function renderReview() {
       const existingVal = item.existingPerson[key] || '';
       const newVal = item.newRow[key] || '';
       if (!existingVal && !newVal) return;
-      fieldsHtml += `<tr><td>${label}</td>` +
-        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="existing" ${existingVal || !newVal ? 'checked' : ''}> ${existingVal || '(ריק)'}</label></td>` +
-        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="new" ${!existingVal && newVal ? 'checked' : ''}> ${newVal || '(ריק)'}</label></td></tr>`;
+      fieldsHtml += `<tr><td>${esc(label)}</td>` +
+        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="existing" ${existingVal || !newVal ? 'checked' : ''}> ${esc(existingVal) || '(ריק)'}</label></td>` +
+        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="new" ${!existingVal && newVal ? 'checked' : ''}> ${esc(newVal) || '(ריק)'}</label></td></tr>`;
     });
     fieldsHtml += '</table></div>';
     box.innerHTML =
-      `<b>קיים:</b> ${item.existingPerson.first_name} ${item.existingPerson.last_name} ` +
-      `&nbsp;↔&nbsp; <b>חדש:</b> ${item.newRow.first_name} ${item.newRow.last_name}` +
+      `<b>קיים:</b> ${esc(item.existingPerson.first_name)} ${esc(item.existingPerson.last_name)} ` +
+      `&nbsp;↔&nbsp; <b>חדש:</b> ${esc(item.newRow.first_name)} ${esc(item.newRow.last_name)}` +
       fieldsHtml +
       `<button class="btn" onclick="mergeDup(${idx})"><i class="bi bi-union"></i> מזג לפי הבחירה</button> ` +
       `<button class="secondary" onclick="skipDup(${idx})"><i class="bi bi-file-earmark-plus"></i> השאר נפרד</button>`;
@@ -710,6 +839,7 @@ async function mergeDup(idx) {
 }
 
 async function undoLastMerge(personId) {
+  if (!confirm('לבטל את המיזוג האחרון עבור הרשומה הזו ולהחזיר אותה למצב הקודם?')) return;
   const logs = await AUTH.api(`merge_log?target_person=eq.${personId}&undone_at=is.null&order=created_at.desc&limit=1`);
   if (!logs || !logs.length) { alert('אין מיזוג לבטל עבור אדם זה'); return; }
   const log = logs[0];
@@ -729,6 +859,7 @@ async function skipDup(idx) {
   row.birth_date = row.birth_date || null;
   const created = await AUTH.api('people', { method: 'POST', body: JSON.stringify(row), headers: {'Prefer':'return=representation'} });
   logAudit('create', 'person', created && created[0] && created[0].id, { via: 'dedup_skip' });
+  globalSearchCache = null;
   pendingReview.splice(idx, 1);
   showMsg('importMsg', 'נשמר כרשומה נפרדת', 'ok');
   renderReview();
@@ -767,38 +898,103 @@ function applyAgePreset(minAge, maxAge) {
   runSearch();
 }
 
+// תוצאות נשמרות per-panel, לא במשתנה גלובלי יחיד — אחרת ביקור בטאב "רשימה
+// מלאה" דורס את מה שטאב "חיפוש" עמד לייצא/לתייג (ראה REVIEW_FINDINGS.md #2/#9).
+const panelResults = {};
+
 function renderPeopleTable(people, elId, title) {
-  lastSearchResults = people;
+  panelResults[elId] = people;
   const el = document.getElementById(elId);
+  const canEdit = myAccessLevel === 'full';
   if (!people.length) {
     el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-inbox"></i> אין אנשי קשר להצגה</div>';
     return;
   }
-  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} ${title} ` +
-    `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
+  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} ${esc(title)} ` +
+    `<button class="secondary" style="margin-inline-start:8px; margin-top:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv('${elId}')">` +
     `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button> ` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('hefetz')">` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('hefetz','${elId}')">` +
     `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לחפץ חסד</button> ` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('nedarim')">` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('nedarim','${elId}')">` +
     `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לנדרים פלוס</button></h3>` +
-    `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
-    `<input id="bulkTagName" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected()">` +
-    `<i class="bi bi-tags"></i> הוסף קטגוריה לנבחרים</button></div>` +
-    '<div class="table-wrap"><table><tr><th><input type="checkbox" onclick="toggleAllResultChecks(this)"></th><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th><th>כיתה</th></tr>';
+    (canEdit ? `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
+    `<input id="bulkTagName_${elId}" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected('${elId}')">` +
+    `<i class="bi bi-tags"></i> הוסף קטגוריה לנבחרים</button></div>` : '') +
+    `<div class="table-wrap"><table><tr><th><input type="checkbox" onclick="toggleAllResultChecks(this,'${elId}')"></th><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th><th>כיתה</th>${canEdit ? '<th></th>' : ''}</tr>`;
   people
     .slice()
     .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`, 'he'))
     .forEach(p => {
-      html += `<tr><td><input type="checkbox" class="resultCheck" value="${p.id}"></td><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td><td>${p.school_class || ''}</td></tr>`;
+      html += `<tr><td><input type="checkbox" class="resultCheck_${elId}" value="${esc(p.id)}"></td>` +
+        `<td>${esc(p.first_name)} ${esc(p.last_name)}</td><td>${esc(p.id_number)}</td><td>${esc(p.birth_date)}</td>` +
+        `<td>${calcAge(p.birth_date) ?? ''}</td><td>${esc(p.street)}</td><td>${esc(p.phone)}</td><td>${esc(p.school_class)}</td>` +
+        (canEdit ? `<td><button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="openEditPerson('${p.id}','${elId}')"><i class="bi bi-pencil"></i></button></td>` : '') +
+        '</tr>';
     });
   html += '</table></div></div>';
+  if (canEdit) html += `<div id="editPersonArea_${elId}"></div>`;
   el.innerHTML = html;
 }
 
 async function refreshFullList() {
   const people = await AUTH.rpc('people_for_me', {}) || [];
   renderPeopleTable(people, 'fullListResults', 'אנשי קשר — הרשימה המלאה');
+}
+
+/** ================= עריכה/מחיקה של איש קשר קיים ================= */
+
+const EDIT_FIELDS = [
+  ['first_name', 'שם פרטי'], ['last_name', 'שם משפחה'], ['id_number', 'ת"ז'],
+  ['birth_date', 'תאריך לידה', 'date'], ['phone', 'טלפון'], ['phone2', 'טלפון נוסף'],
+  ['email', 'מייל'], ['street', 'רחוב'], ['city', 'עיר'], ['school_class', 'כיתה'],
+  ['notes', 'הערות']
+];
+
+function openEditPerson(personId, elId) {
+  const person = (panelResults[elId] || []).find(p => p.id === personId);
+  if (!person) return;
+  const area = document.getElementById(`editPersonArea_${elId}`);
+  area.innerHTML = `<div class="card" style="border:1px solid var(--accent)">
+    <h3><i class="bi bi-pencil-square"></i> עריכת ${esc(person.first_name)} ${esc(person.last_name)}</h3>
+    <div class="field-grid">
+      ${EDIT_FIELDS.map(([key, label, type]) =>
+        `<label>${label}<input id="ep_${key}" type="${type || 'text'}" value="${esc(person[key])}"></label>`
+      ).join('')}
+    </div>
+    <button class="primary" onclick="saveEditPerson('${personId}','${elId}')"><i class="bi bi-check2"></i> שמור שינויים</button>
+    <button class="secondary" onclick="deletePersonConfirm('${personId}','${elId}')"><i class="bi bi-trash"></i> מחק איש קשר</button>
+    <button class="secondary" onclick="document.getElementById('editPersonArea_${elId}').innerHTML=''"><i class="bi bi-x"></i> ביטול</button>
+    <div id="editPersonMsg_${elId}"></div>
+  </div>`;
+  area.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function saveEditPerson(personId, elId) {
+  const updates = {};
+  EDIT_FIELDS.forEach(([key]) => { updates[key] = document.getElementById(`ep_${key}`).value || null; });
+  try {
+    await AUTH.api(`people?id=eq.${personId}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    logAudit('update', 'person', personId, { fields: Object.keys(updates) });
+    globalSearchCache = null;
+    document.getElementById(`editPersonMsg_${elId}`).innerHTML = '<div class="msg ok">נשמר</div>';
+    if (elId === 'fullListResults') refreshFullList(); else if (elId === 'searchResults') runSearch();
+  } catch (e) {
+    document.getElementById(`editPersonMsg_${elId}`).innerHTML = `<div class="msg err">שגיאה: ${esc(e.message)}</div>`;
+  }
+}
+
+async function deletePersonConfirm(personId, elId) {
+  const person = (panelResults[elId] || []).find(p => p.id === personId);
+  if (!confirm(`למחוק לצמיתות את ${person ? person.first_name + ' ' + person.last_name : 'איש הקשר'}? לא ניתן לבטל.`)) return;
+  try {
+    await AUTH.api(`people?id=eq.${personId}`, { method: 'DELETE' });
+    logAudit('delete', 'person', personId, { name: person ? `${person.first_name} ${person.last_name}` : '' });
+    globalSearchCache = null;
+    if (elId === 'fullListResults') refreshFullList(); else if (elId === 'searchResults') runSearch();
+  } catch (e) {
+    document.getElementById(`editPersonMsg_${elId}`).innerHTML = `<div class="msg err">שגיאה: ${esc(e.message)}</div>`;
+  }
 }
 
 async function runSearch() {
@@ -837,33 +1033,36 @@ async function runSearch() {
   renderPeopleTable(people, 'searchResults', 'תוצאות');
 }
 
-function toggleAllResultChecks(master) {
-  document.querySelectorAll('.resultCheck').forEach(cb => cb.checked = master.checked);
+function toggleAllResultChecks(master, elId) {
+  document.querySelectorAll(`.resultCheck_${elId}`).forEach(cb => cb.checked = master.checked);
 }
 
-async function bulkTagSelected() {
-  const catName = val('bulkTagName');
+async function bulkTagSelected(elId) {
+  const catName = document.getElementById(`bulkTagName_${elId}`).value;
   if (!catName) return;
-  const ids = Array.from(document.querySelectorAll('.resultCheck:checked')).map(cb => cb.value);
+  const ids = Array.from(document.querySelectorAll(`.resultCheck_${elId}:checked`)).map(cb => cb.value);
   if (!ids.length) { alert('לא נבחרו אנשים'); return; }
   await AUTH.api('categories', { method: 'POST', body: JSON.stringify({ name: catName }) }).catch(() => {});
+  let ok = 0, fail = 0;
   for (const id of ids) {
-    await AUTH.api('person_categories', { method: 'POST', body: JSON.stringify({ person_id: id, category_name: catName }) }).catch(() => {});
+    try {
+      await AUTH.api('person_categories', { method: 'POST', body: JSON.stringify({ person_id: id, category_name: catName }) });
+      ok++;
+    } catch (e) { fail++; }
   }
-  logAudit('bulk_tag', 'category', null, { category: catName, count: ids.length });
-  alert(`הוספה בוצעה ל-${ids.length} אנשים`);
+  logAudit('bulk_tag', 'category', null, { category: catName, ok, fail });
+  alert(fail === 0 ? `הקטגוריה נוספה ל-${ok} אנשים` : `נוספה ל-${ok} אנשים, נכשלה עבור ${fail} (כנראה כבר תויגו קודם)`);
 }
 
-let lastSearchResults = [];
-
-function exportResultsToCsv() {
-  if (!lastSearchResults.length) return;
+function exportResultsToCsv(elId) {
+  const results = panelResults[elId] || [];
+  if (!results.length) return;
   const cols = ['first_name','last_name','id_number','birth_date','gender','street','city',
     'school_class','phone','phone2','email','housing_status','notes'];
   const headerLabels = ['שם פרטי','שם משפחה','ת"ז','תאריך לידה','מגדר','רחוב','עיר',
     'כיתה','טלפון','טלפון נוסף','מייל','סטטוס דיור','הערות'];
   const rows = [headerLabels.join(',')];
-  lastSearchResults.forEach(p => {
+  results.forEach(p => {
     rows.push(cols.map(c => csvEscape(p[c])).join(','));
   });
   const csv = '﻿' + rows.join('\r\n'); // BOM כדי שאקסל יזהה עברית נכון
@@ -890,11 +1089,12 @@ const CUSTOM_EXPORT_FORMATS = {
   }
 };
 
-function exportResultsCustom(formatKey) {
-  if (!lastSearchResults.length) return;
+function exportResultsCustom(formatKey, elId) {
+  const results = panelResults[elId] || [];
+  if (!results.length) return;
   const fmt = CUSTOM_EXPORT_FORMATS[formatKey];
   const rows = [fmt.headers.join(',')];
-  lastSearchResults.forEach(p => rows.push(fmt.row(p).map(csvEscape).join(',')));
+  results.forEach(p => rows.push(fmt.row(p).map(csvEscape).join(',')));
   const csv = '﻿' + rows.join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -902,7 +1102,7 @@ function exportResultsCustom(formatKey) {
   a.href = url; a.download = `anshei-kesher-${formatKey}-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  logAudit('export', 'people', null, { format: formatKey, count: lastSearchResults.length });
+  logAudit('export', 'people', null, { format: formatKey, count: results.length });
 }
 
 /** ================= שמירת חיפושים ================= */
@@ -925,14 +1125,23 @@ async function refreshSavedSearches() {
   const el = document.getElementById('savedSearchesList');
   if (!el) return;
   const rows = await AUTH.api('saved_searches?select=*&order=created_at.desc') || [];
-  if (!rows.length) { el.innerHTML = ''; return; }
-  el.innerHTML = rows.map(r =>
-    `<span style="display:inline-flex; align-items:center; gap:6px; background:var(--accent-soft); ` +
-    `color:var(--primary-dark); padding:5px 6px 5px 12px; border-radius:999px; font-size:.8rem; margin:2px">` +
-    `<button style="margin:0; background:none; border:none; padding:0; cursor:pointer; color:var(--primary-dark); font-weight:700"` +
-    ` onclick='applySavedSearch(${JSON.stringify(r.filters)})'>${r.name}</button>` +
-    `<i class="bi bi-x-circle" style="cursor:pointer" onclick="deleteSavedSearch('${r.id}')"></i></span>`
-  ).join('');
+  el.innerHTML = '';
+  // בנייה עם DOM API ולא string concatenation — r.name/r.filters מגיעים מ-prompt()
+  // חופשי של המשתמש, וזה נמנע מ-XSS/שבירת attribute בלי צורך ב-escape ידני.
+  rows.forEach(r => {
+    const span = document.createElement('span');
+    span.style = 'display:inline-flex; align-items:center; gap:6px; background:var(--accent-soft); color:var(--primary-dark); padding:5px 6px 5px 12px; border-radius:999px; font-size:.8rem; margin:2px';
+    const btn = document.createElement('button');
+    btn.style = 'margin:0; background:none; border:none; padding:0; cursor:pointer; color:var(--primary-dark); font-weight:700';
+    btn.textContent = r.name;
+    btn.onclick = () => applySavedSearch(r.filters);
+    const x = document.createElement('i');
+    x.className = 'bi bi-x-circle';
+    x.style.cursor = 'pointer';
+    x.onclick = () => deleteSavedSearch(r.id);
+    span.appendChild(btn); span.appendChild(x);
+    el.appendChild(span);
+  });
 }
 
 function applySavedSearch(filters) {
@@ -946,6 +1155,7 @@ function applySavedSearch(filters) {
 }
 
 async function deleteSavedSearch(id) {
+  if (!confirm('למחוק את החיפוש השמור הזה?')) return;
   await AUTH.api(`saved_searches?id=eq.${id}`, { method: 'DELETE' });
   refreshSavedSearches();
 }
@@ -960,15 +1170,24 @@ function csvEscape(v) {
 /** ================= קטגוריות ================= */
 
 async function addNewCategory() {
+  if (!val('newCatName').trim()) { showMsg('catList', 'יש להזין שם קטגוריה', 'err'); return; }
   try {
     await AUTH.api('categories', { method: 'POST',
-      body: JSON.stringify({ name: val('newCatName'), group: val('newCatGroup') || '' }) });
+      body: JSON.stringify({ name: val('newCatName').trim(), group: val('newCatGroup') || '' }) });
     document.getElementById('newCatName').value = '';
     document.getElementById('newCatGroup').value = '';
     refreshCatList();
+    const catSelect = document.getElementById('q_category');
+    if (catSelect) { catSelect.innerHTML = '<option value="">הכל</option>'; loadCategoriesIntoSelect('q_category'); }
   } catch (e) {
-    document.getElementById('catList').innerHTML = `<div class="msg err">${e.message}</div>`;
+    document.getElementById('catList').innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
   }
+}
+
+async function deleteCategoryConfirm(name) {
+  if (!confirm(`למחוק את הקטגוריה "${name}"? כל השיוכים אליה יימחקו גם הם.`)) return;
+  await AUTH.api(`categories?name=eq.${encodeURIComponent(name)}`, { method: 'DELETE' });
+  refreshCatList();
 }
 
 async function refreshCatList() {
@@ -978,11 +1197,20 @@ async function refreshCatList() {
     el.innerHTML = '<p style="color:var(--muted); font-size:.85rem">אין עדיין קטגוריות</p>';
     return;
   }
-  el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px">' +
-    cats.map(c =>
-      `<span style="background:var(--accent-soft); color:var(--primary-dark); padding:6px 14px; ` +
-      `border-radius:999px; font-size:.82rem; font-weight:600"><i class="bi bi-tag"></i> ${c.name}` +
-      `${c.group ? ' · ' + c.group : ''}</span>`
-    ).join('') + '</div>';
+  el.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style = 'display:flex; flex-wrap:wrap; gap:8px';
+  cats.forEach(c => {
+    const span = document.createElement('span');
+    span.style = 'background:var(--accent-soft); color:var(--primary-dark); padding:6px 10px 6px 14px; border-radius:999px; font-size:.82rem; font-weight:600; display:inline-flex; align-items:center; gap:6px';
+    span.innerHTML = `<i class="bi bi-tag"></i> ${esc(c.name)}${c.group ? ' · ' + esc(c.group) : ''}`;
+    const del = document.createElement('i');
+    del.className = 'bi bi-x-circle';
+    del.style.cursor = 'pointer';
+    del.onclick = () => deleteCategoryConfirm(c.name);
+    span.appendChild(del);
+    wrap.appendChild(span);
+  });
+  el.appendChild(wrap);
 }
 refreshCatList();

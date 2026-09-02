@@ -38,6 +38,8 @@ const AUTH = {
 
   // עוזר קריאות ל-PostgREST על ה-schema anshei_kesher, עם ה-token של המשתמש
   // המחובר — כך ש-RLS פועל לפי auth.uid() האמיתי, לא לפי anon.
+  // path יכול להתחיל ב-'rpc/...' (משמש גם את rpc() למטה) — אותה שכבת
+  // headers/401/parsing לשניהם, לא שני מימושים שיכולים להתפצל (REVIEW_FINDINGS.md #27).
   async api(path, opts) {
     const s = this.requireLogin();
     if (!s) return null;
@@ -62,23 +64,6 @@ const AUTH = {
   },
 
   async rpc(fnName, args) {
-    const s = this.requireLogin();
-    if (!s) return null;
-    const res = await fetch(`${CFG.url}/rest/v1/rpc/${fnName}`, {
-      method: 'POST',
-      headers: {
-        'apikey': CFG.anon,
-        'Authorization': `Bearer ${s.access_token}`,
-        'Content-Type': 'application/json',
-        'Content-Profile': CFG.schema,
-        'Accept-Profile': CFG.schema
-      },
-      body: JSON.stringify(args || {})
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || `שגיאת שרת (${res.status})`);
-    }
-    return res.json();
+    return this.api(`rpc/${fnName}`, { method: 'POST', body: JSON.stringify(args || {}) });
   }
 };

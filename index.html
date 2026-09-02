@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>אנשי קשר</title>
   <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230a4256'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23fff'%3E%F0%9F%91%A5%3C/text%3E%3C/svg%3E">
   <link href="vendor/heebo.css" rel="stylesheet">
   <link rel="stylesheet" href="vendor/bootstrap-icons.css">
   <link rel="stylesheet" href="css/main.css">
@@ -15,11 +16,9 @@
       <div class="logo"><i class="bi bi-people-fill"></i></div>
       <div class="brand-txt"><strong>אנשי קשר</strong><small>מאגר קהילתי</small></div>
     </div>
-    <div style="flex:1; max-width:340px; position:relative">
-      <input id="globalSearch" placeholder="חיפוש מהיר: שם, ת&quot;ז, טלפון, כתובת..."
-        style="width:100%; padding:8px 34px 8px 12px; border-radius:20px; border:none; background:rgba(255,255,255,.14); color:#fff"
-        oninput="runGlobalSearch()">
-      <i class="bi bi-search" style="position:absolute; inset-inline-end:12px; top:50%; transform:translateY(-50%); color:rgba(255,255,255,.7)"></i>
+    <div class="global-search-wrap">
+      <input id="globalSearch" placeholder="חיפוש מהיר: שם, ת&quot;ז, טלפון, כתובת..." oninput="runGlobalSearch()">
+      <i class="bi bi-search search-icon"></i>
       <div id="globalSearchResults" style="display:none; position:absolute; top:110%; right:0; left:0; background:var(--card);
         border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2); max-height:320px; overflow-y:auto; z-index:60"></div>
     </div>
@@ -76,9 +75,11 @@
       </div>
       <div class="card">
         <h3><i class="bi bi-person-plus"></i> פרטי איש קשר</h3>
+
+        <div class="field-group-title">פרטים אישיים <span style="color:var(--danger); font-weight:400">(שם פרטי ושם משפחה — חובה)</span></div>
         <div class="field-grid">
-          <label>שם פרטי<input id="f_first_name"></label>
-          <label>שם משפחה<input id="f_last_name"></label>
+          <label>שם פרטי *<input id="f_first_name" required></label>
+          <label>שם משפחה *<input id="f_last_name" required></label>
           <label>תעודת זהות<input id="f_id_number"></label>
           <label>תאריך לידה<input id="f_birth_date" type="date"></label>
           <label>בר/בת מצווה<input id="f_bar_mitzva_date" type="date"></label>
@@ -86,24 +87,41 @@
           <label>מגדר
             <select id="f_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select>
           </label>
-          <label>רחוב<input id="f_street"></label>
-          <label>עיר<input id="f_city"></label>
-          <label>כיתה / בית ספר<input id="f_school_class" placeholder="למשל: כיתה ג' - בית ספר X"></label>
+          <label>כינויים נוספים (מופרדים בפסיק — לדוגמה: יוסי, יוסף חיים)<input id="f_aliases"></label>
+        </div>
+
+        <div class="field-group-title">יצירת קשר</div>
+        <div class="field-grid">
           <label>טלפון<input id="f_phone"></label>
           <label>טלפון נוסף<input id="f_phone2"></label>
           <label>מייל<input id="f_email" type="email"></label>
-          <label>תפקיד במשפחה
-            <select id="f_role"><option value="">--</option><option value="אב">אב</option><option value="אם">אם</option><option value="ילד">ילד</option><option value="אחר">אחר</option></select>
-          </label>
+        </div>
+
+        <div class="field-group-title">כתובת ולימודים</div>
+        <div class="field-grid">
+          <label>רחוב<input id="f_street"></label>
+          <label>עיר<input id="f_city"></label>
+          <label>כיתה / בית ספר<input id="f_school_class" placeholder="למשל: כיתה ג' - בית ספר X"></label>
           <label>מוסד לימודים / כולל<input id="f_institution"></label>
           <label>סטטוס דיור
             <select id="f_housing"><option value="">--</option><option value="גר">גר</option><option value="קנה ולא גר">קנה ולא גר</option><option value="שוכר">שוכר</option><option value="עוזב">עוזב</option></select>
           </label>
-          <label>כינויים נוספים (מופרדים בפסיק — לדוגמה: יוסי, יוסף חיים)<input id="f_aliases"></label>
+        </div>
+
+        <div class="field-group-title">משפחה</div>
+        <div class="field-grid">
+          <label>תפקיד במשפחה
+            <select id="f_role"><option value="">--</option><option value="אב">אב</option><option value="אם">אם</option><option value="ילד">ילד</option><option value="אחר">אחר</option></select>
+          </label>
+          <label>סטטוס אישי
+            <select id="f_marital_status"><option value="">--</option><option value="רווק/ה">רווק/ה</option><option value="נשוי/אה">נשוי/אה</option><option value="גרוש/ה">גרוש/ה</option><option value="אלמן/ה">אלמן/ה</option></select>
+          </label>
+          <label>תאריך נישואין<input id="f_marriage_date" type="date"></label>
           <label>בן/בת זוג (אופציונלי — מקשר לכרטיס משפחה)
             <select id="f_spouse"><option value="">--</option></select>
           </label>
         </div>
+
         <label style="margin-top:14px">הערות<textarea id="f_notes" rows="2" style="font-family:var(--font)"></textarea></label>
         <button class="primary" onclick="submitPerson()"><i class="bi bi-check2"></i> שמור</button>
         <div id="addMsg"></div>
@@ -135,14 +153,15 @@
         <div class="field-grid">
           <label>אדם א'<select id="rel_a"><option value="">בחר...</option></select></label>
           <label>סוג הקשר
-            <select id="rel_type">
+            <select id="rel_type" onchange="document.getElementById('rel_type_custom').style.display = this.value==='אחר' ? 'block' : 'none'">
               <option value="הורה-של">הורה של</option>
               <option value="סבא/סבתא-של">סבא/סבתא של</option>
               <option value="אח/אחות-של">אח/אחות של</option>
               <option value="חתן/כלה-של">חתן/כלה של</option>
-              <option value="אחר">אחר (חופשי)</option>
+              <option value="אחר">אחר (הקלד למטה)</option>
             </select>
           </label>
+          <label id="rel_type_custom" style="display:none">תיאור הקשר (חופשי)<input id="rel_type_free"></label>
           <label>אדם ב'<select id="rel_b"><option value="">בחר...</option></select></label>
         </div>
         <button class="primary" onclick="addRelation()"><i class="bi bi-link-45deg"></i> הוסף קשר</button>
@@ -240,7 +259,12 @@
         <h3><i class="bi bi-person-fill-add"></i> הוספת משתמש</h3>
         <div class="field-grid">
           <label>אימייל<input id="u_email" type="email"></label>
-          <label>סיסמה זמנית (8 תווים לפחות)<input id="u_password" type="text"></label>
+          <label>סיסמה זמנית (8 תווים לפחות)
+            <span style="display:flex; gap:6px">
+              <input id="u_password" type="password" style="flex:1">
+              <button type="button" class="secondary" style="margin:0; padding:9px 12px" onclick="toggleShowPassword()"><i class="bi bi-eye" id="u_password_eye"></i></button>
+            </span>
+          </label>
           <label>רמת גישה
             <select id="u_level" onchange="toggleLimitedFields()">
               <option value="limited">limited — רואה רק מה שמסומן למטה</option>
@@ -255,8 +279,22 @@
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="last_name" checked> שם משפחה</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="id_number"> ת"ז</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="phone"> טלפון</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="phone2"> טלפון נוסף</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="email"> מייל</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="birth_date"> תאריך לידה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="bar_mitzva_date"> בר/בת מצווה</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="street"> רחוב</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="city"> עיר</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="edah"> עדה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="gender"> מגדר</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="school_class"> כיתה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="role_in_family"> תפקיד במשפחה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="institution"> מוסד לימודים</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="marital_status"> סטטוס אישי</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="marriage_date"> תאריך נישואין</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="housing_status"> סטטוס דיור</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="aliases"> כינויים</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="notes"> הערות</label>
           </div>
           <label style="margin-top:14px">קטגוריות מותרות (מופרד בפסיק, ריק=לא רואה אף אחד)<input id="u_categories"></label>
         </div>
