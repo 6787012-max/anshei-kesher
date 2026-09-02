@@ -144,13 +144,14 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.panel === 'usersPanel') refreshUsersList();
     if (t.dataset.panel === 'listPanel') refreshFullList();
     if (t.dataset.panel === 'familiesPanel') refreshFamiliesList();
+    if (t.dataset.panel === 'ideasPanel') refreshIdeasList();
   };
 });
 
 // טאבים שממילא חסומים ב-RLS למשתמש 'limited' (כתיבה/ניהול/יומן ביקורת) —
 // מוסתרים לגמרי במקום שיוצגו עם "אין נתונים" מטעה (ראה REVIEW_FINDINGS.md #38/#36).
 let myAccessLevel = 'full';
-const FULL_ONLY_PANELS = ['addPanel', 'familiesPanel', 'importPanel', 'categoriesPanel', 'usersPanel', 'auditPanel'];
+const FULL_ONLY_PANELS = ['addPanel', 'familiesPanel', 'importPanel', 'categoriesPanel', 'usersPanel', 'auditPanel', 'ideasPanel'];
 
 async function initAccessLevel() {
   try {
@@ -232,6 +233,92 @@ async function refreshUsersList() {
       `<td>${u.email === AUTH.getSession().user.email ? '' :
         `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="deleteUser('${u.user_id}','${esc(u.email)}')"><i class="bi bi-trash"></i></button>`}</td></tr>`
     ).join('') + '</table>';
+}
+
+/** ================= רעיונות ושיפורים ================= */
+
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'idea_source') {
+    document.getElementById('idea_email_wrap').style.display = e.target.value === 'email' ? 'block' : 'none';
+  }
+});
+
+async function addIdea() {
+  const title = val('idea_title').trim();
+  if (!title) { showMsg('ideaMsg', 'יש להזין כותרת', 'err'); return; }
+  const idea = {
+    title, description: val('idea_desc'),
+    source: val('idea_source'), source_email: val('idea_source') === 'email' ? val('idea_email') : ''
+  };
+  try {
+    const created = await AUTH.api('improvement_ideas', { method: 'POST', body: JSON.stringify(idea), headers: { 'Prefer': 'return=representation' } });
+    logAudit('create', 'improvement_idea', created && created[0] && created[0].id, { title, source: idea.source });
+    document.getElementById('idea_title').value = '';
+    document.getElementById('idea_desc').value = '';
+    document.getElementById('idea_email').value = '';
+    showMsg('ideaMsg', 'נוסף למעקב', 'ok');
+    refreshIdeasList();
+  } catch (e) {
+    showMsg('ideaMsg', 'שגיאה: ' + esc(e.message), 'err');
+  }
+}
+
+let currentIdeaFilter = 'all';
+function filterIdeas(status) { currentIdeaFilter = status; refreshIdeasList(); }
+
+const IDEA_STATUS_LABELS = { new: 'חדש', in_progress: 'בטיפול', done: 'בוצע', rejected: 'נדחה' };
+
+async function refreshIdeasList() {
+  const el = document.getElementById('ideasList');
+  if (!el) return;
+  const rows = await AUTH.api('improvement_ideas?select=*&order=created_at.desc') || [];
+  const filtered = currentIdeaFilter === 'all' ? rows : rows.filter(r => r.status === currentIdeaFilter);
+  if (!filtered.length) { el.innerHTML = '<p style="color:var(--muted)">אין רעיונות בסטטוס הזה</p>'; return; }
+  el.innerHTML = '';
+  filtered.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'review-box';
+    card.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
+        <div>
+          <b>${esc(r.title)}</b>
+          ${r.source === 'email' ? ` <span style="font-size:.75rem; color:var(--muted)">(במייל${r.source_email ? ' מ-' + esc(r.source_email) : ''})</span>` : ''}
+          <p style="margin-top:6px; font-size:.85rem">${esc(r.description)}</p>
+          <p style="font-size:.72rem; color:var(--muted); margin-top:6px">${esc(new Date(r.created_at).toLocaleDateString('he-IL'))}</p>
+        </div>
+      </div>`;
+    const controls = document.createElement('div');
+    controls.style = 'margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap';
+    const select = document.createElement('select');
+    select.style = 'max-width:160px';
+    ['new', 'in_progress', 'done', 'rejected'].forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = IDEA_STATUS_LABELS[s]; opt.selected = s === r.status;
+      select.appendChild(opt);
+    });
+    select.onchange = () => updateIdeaStatus(r.id, select.value);
+    const del = document.createElement('button');
+    del.className = 'secondary'; del.style = 'margin:0; font-size:.75rem; padding:4px 10px';
+    del.innerHTML = '<i class="bi bi-trash"></i>';
+    del.onclick = () => deleteIdeaConfirm(r.id);
+    controls.appendChild(select); controls.appendChild(del);
+    card.appendChild(controls);
+    el.appendChild(card);
+  });
+}
+
+async function updateIdeaStatus(id, status) {
+  const patch = { status };
+  if (status === 'done' || status === 'rejected') patch.resolved_at = new Date().toISOString();
+  await AUTH.api(`improvement_ideas?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  logAudit('update', 'improvement_idea', id, { status });
+  refreshIdeasList();
+}
+
+async function deleteIdeaConfirm(id) {
+  if (!confirm('למחוק את הרעיון הזה?')) return;
+  await AUTH.api(`improvement_ideas?id=eq.${id}`, { method: 'DELETE' });
+  refreshIdeasList();
 }
 
 /** ================= יומן ביקורת ================= */
