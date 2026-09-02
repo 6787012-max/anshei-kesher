@@ -103,18 +103,20 @@ function renderReview() {
   const area = document.getElementById('reviewArea');
   area.innerHTML = '';
   if (!pendingReview.length) return;
-  const h = document.createElement('h3');
-  h.textContent = 'מועמדים לכפילות — נא לאשר ידנית';
-  area.appendChild(h);
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<h3><i class="bi bi-exclamation-triangle"></i> מועמדים לכפילות — נא לאשר ידנית</h3>';
   pendingReview.forEach((item, idx) => {
     const box = document.createElement('div');
     box.className = 'review-box';
     box.innerHTML =
       `<b>קיים:</b> ${item.existingPerson.first_name} ${item.existingPerson.last_name} (ת"ז: ${item.existingPerson.id_number || '-'})<br>` +
       `<b>חדש:</b> ${item.newRow.first_name} ${item.newRow.last_name} (ת"ז: ${item.newRow.id_number || '-'})<br>` +
-      `<button onclick="mergeDup(${idx})">מזג</button> <button onclick="skipDup(${idx})">השאר נפרד</button>`;
-    area.appendChild(box);
+      `<button class="btn" onclick="mergeDup(${idx})"><i class="bi bi-union"></i> מזג</button> ` +
+      `<button class="secondary" onclick="skipDup(${idx})"><i class="bi bi-file-earmark-plus"></i> השאר נפרד</button>`;
+    card.appendChild(box);
   });
+  area.appendChild(card);
 }
 
 async function mergeDup(idx) {
@@ -193,12 +195,16 @@ async function runSearch() {
   }
 
   const el = document.getElementById('searchResults');
-  if (!people.length) { el.innerHTML = '<p>לא נמצאו תוצאות</p>'; return; }
-  let html = '<table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>רחוב</th></tr>';
+  if (!people.length) {
+    el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-inbox"></i> לא נמצאו תוצאות</div>';
+    return;
+  }
+  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות</h3>` +
+    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>רחוב</th></tr>';
   people.forEach(p => {
     html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${p.street || ''}</td></tr>`;
   });
-  html += '</table>';
+  html += '</table></div></div>';
   el.innerHTML = html;
 }
 
@@ -218,7 +224,16 @@ async function addNewCategory() {
 
 async function refreshCatList() {
   const cats = await AUTH.api('categories?select=name,group&order=name');
-  document.getElementById('catList').innerHTML =
-    '<ul>' + (cats || []).map(c => `<li>${c.name}${c.group ? ' (' + c.group + ')' : ''}</li>`).join('') + '</ul>';
+  const el = document.getElementById('catList');
+  if (!cats || !cats.length) {
+    el.innerHTML = '<p style="color:var(--muted); font-size:.85rem">אין עדיין קטגוריות</p>';
+    return;
+  }
+  el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px">' +
+    cats.map(c =>
+      `<span style="background:var(--accent-soft); color:var(--primary-dark); padding:6px 14px; ` +
+      `border-radius:999px; font-size:.82rem; font-weight:600"><i class="bi bi-tag"></i> ${c.name}` +
+      `${c.group ? ' · ' + c.group : ''}</span>`
+    ).join('') + '</div>';
 }
 refreshCatList();

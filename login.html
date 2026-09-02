@@ -5,25 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>כניסה — אנשי קשר</title>
   <meta name="robots" content="noindex">
-  <style>
-    body { font-family: Arial, sans-serif; direction: rtl; display: flex; align-items: center;
-           justify-content: center; height: 100vh; margin: 0; background: #f5f5f5; }
-    .box { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); width: 300px; }
-    h1 { font-size: 18px; margin-top: 0; }
-    label { display: block; margin-top: 12px; font-size: 13px; color: #444; }
-    input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-    button { margin-top: 18px; width: 100%; padding: 10px; background: #3367d6; color: white;
-             border: none; border-radius: 4px; cursor: pointer; }
-    .err { color: #c5221f; margin-top: 10px; font-size: 13px; }
-  </style>
+  <link href="vendor/heebo.css" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/bootstrap-icons.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>body{background:var(--bg)}</style>
 </head>
 <body>
-  <div class="box">
-    <h1>אנשי קשר — כניסה</h1>
-    <label>אימייל<input id="email" type="email"></label>
-    <label>סיסמה<input id="password" type="password"></label>
-    <button onclick="doLogin()">כניסה</button>
-    <div id="err" class="err"></div>
+  <div class="login-wrap">
+    <div class="login-box">
+      <div class="logo"><i class="bi bi-people-fill"></i></div>
+      <h1>אנשי קשר — כניסה</h1>
+      <label>אימייל<input id="email" type="email"></label>
+      <label style="margin-top:12px">סיסמה<input id="password" type="password"></label>
+      <button class="primary" style="width:100%" onclick="doLogin()">כניסה</button>
+      <div id="err" class="msg err" style="display:none"></div>
+    </div>
   </div>
 
   <script src="js/config.js"></script>
@@ -35,11 +31,13 @@
     async function doLogin() {
       const email = document.getElementById('email').value;
       const password = document.getElementById('password').value;
+      const errEl = document.getElementById('err');
       try {
         await AUTH.login(email, password);
         location.href = 'index.html';
       } catch (e) {
-        document.getElementById('err').textContent = e.message;
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
       }
     }
     document.getElementById('password').addEventListener('keydown', e => {
