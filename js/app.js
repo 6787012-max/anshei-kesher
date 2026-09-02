@@ -131,6 +131,7 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.panel === 'homePanel') refreshDashboard();
     if (t.dataset.panel === 'auditPanel') refreshAuditLog();
     if (t.dataset.panel === 'usersPanel') refreshUsersList();
+    if (t.dataset.panel === 'listPanel') refreshFullList();
   };
 });
 
@@ -766,6 +767,40 @@ function applyAgePreset(minAge, maxAge) {
   runSearch();
 }
 
+function renderPeopleTable(people, elId, title) {
+  lastSearchResults = people;
+  const el = document.getElementById(elId);
+  if (!people.length) {
+    el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-inbox"></i> אין אנשי קשר להצגה</div>';
+    return;
+  }
+  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} ${title} ` +
+    `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
+    `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button> ` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('hefetz')">` +
+    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לחפץ חסד</button> ` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('nedarim')">` +
+    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לנדרים פלוס</button></h3>` +
+    `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
+    `<input id="bulkTagName" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected()">` +
+    `<i class="bi bi-tags"></i> הוסף קטגוריה לנבחרים</button></div>` +
+    '<div class="table-wrap"><table><tr><th><input type="checkbox" onclick="toggleAllResultChecks(this)"></th><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th><th>כיתה</th></tr>';
+  people
+    .slice()
+    .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`, 'he'))
+    .forEach(p => {
+      html += `<tr><td><input type="checkbox" class="resultCheck" value="${p.id}"></td><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td><td>${p.school_class || ''}</td></tr>`;
+    });
+  html += '</table></div></div>';
+  el.innerHTML = html;
+}
+
+async function refreshFullList() {
+  const people = await AUTH.rpc('people_for_me', {}) || [];
+  renderPeopleTable(people, 'fullListResults', 'אנשי קשר — הרשימה המלאה');
+}
+
 async function runSearch() {
   // דרך people_for_me() ולא ישירות ל-people, כדי שמשתמש 'limited' יקבל בפועל
   // רק את השדות/שורות שהוא רשאי לראות (לא רק "מוסתר" בקוד לקוח).
@@ -799,29 +834,7 @@ async function runSearch() {
     people = people.filter(p => allowedIds.has(p.id));
   }
 
-  lastSearchResults = people;
-  const el = document.getElementById('searchResults');
-  if (!people.length) {
-    el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-inbox"></i> לא נמצאו תוצאות</div>';
-    return;
-  }
-  let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות ` +
-    `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
-    `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button> ` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('hefetz')">` +
-    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לחפץ חסד</button> ` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('nedarim')">` +
-    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לנדרים פלוס</button></h3>` +
-    `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
-    `<input id="bulkTagName" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
-    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected()">` +
-    `<i class="bi bi-tags"></i> הוסף קטגוריה לנבחרים</button></div>` +
-    '<div class="table-wrap"><table><tr><th><input type="checkbox" onclick="toggleAllResultChecks(this)"></th><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th></tr>';
-  people.forEach(p => {
-    html += `<tr><td><input type="checkbox" class="resultCheck" value="${p.id}"></td><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td></tr>`;
-  });
-  html += '</table></div></div>';
-  el.innerHTML = html;
+  renderPeopleTable(people, 'searchResults', 'תוצאות');
 }
 
 function toggleAllResultChecks(master) {
