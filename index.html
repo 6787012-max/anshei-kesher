@@ -48,8 +48,12 @@
     <div id="homePanel" class="panel active">
       <div id="dashboardCards" class="field-grid"></div>
       <div class="card">
-        <h3><i class="bi bi-bar-chart"></i> ילדים לפי כיתה</h3>
+        <h3><i class="bi bi-bar-chart"></i> אנשי קשר לפי כיתה</h3>
         <div id="classBreakdown"></div>
+      </div>
+      <div class="card">
+        <h3><i class="bi bi-calendar3"></i> שנתונים — לפי שנת לידה</h3>
+        <div id="yearBreakdown"></div>
       </div>
     </div>
 
@@ -190,6 +194,8 @@
           </label>
         </div>
         <button class="primary" onclick="runSearch()"><i class="bi bi-search"></i> חפש</button>
+        <button class="secondary" onclick="saveCurrentSearch()"><i class="bi bi-bookmark-plus"></i> שמור חיפוש בשם</button>
+        <div id="savedSearchesList" style="margin-top:12px"></div>
       </div>
       <div id="searchResults"></div>
     </div>

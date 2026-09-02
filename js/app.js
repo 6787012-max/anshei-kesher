@@ -168,12 +168,25 @@ async function refreshDashboard() {
     </div>`
   ).join('');
 
+  const FALLBACK_LABELS = { lelo_kita: 'ללא כיתה', lo_yadua: 'לא ידוע', lo_tzuyan: 'לא צוין' };
+  const label = k => FALLBACK_LABELS[k] || k;
+
   const classEl = document.getElementById('classBreakdown');
   const byClass = stats.by_class || {};
   classEl.innerHTML = Object.keys(byClass).map(k =>
     `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line)">
-      <span>${k}</span><b>${byClass[k]}</b></div>`
+      <span>${label(k)}</span><b>${byClass[k]}</b></div>`
   ).join('') || '<p style="color:var(--muted)">אין נתונים</p>';
+
+  const yearEl = document.getElementById('yearBreakdown');
+  if (yearEl) {
+    const byYear = stats.by_birth_year || {};
+    const years = Object.keys(byYear).sort();
+    yearEl.innerHTML = years.map(y =>
+      `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line)">
+        <span>${y}</span><b>${byYear[y]}</b></div>`
+    ).join('') || '<p style="color:var(--muted)">אין נתונים</p>';
+  }
 }
 refreshDashboard();
 
@@ -643,7 +656,11 @@ async function runSearch() {
   }
   let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות ` +
     `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
-    `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button></h3>` +
+    `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button> ` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('hefetz')">` +
+    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לחפץ חסד</button> ` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="exportResultsCustom('nedarim')">` +
+    `<i class="bi bi-file-earmark-arrow-down"></i> ייצוא לנדרים פלוס</button></h3>` +
     `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
     `<input id="bulkTagName" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
     `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected()">` +
@@ -693,6 +710,82 @@ function exportResultsToCsv() {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// מיפויים "best guess" — לא אומתו מול הפורמט הרשמי של המערכות האלה.
+// לפני שימוש אמיתי כדאי לבדוק עם חפץ חסד / נדרים פלוס שהעמודות מתאימות למה שהם מצפים לייבא.
+const CUSTOM_EXPORT_FORMATS = {
+  hefetz: {
+    label: 'חפץ חסד',
+    headers: ['שם מלא', 'ת"ז', 'טלפון', 'כתובת', 'עיר'],
+    row: p => [`${p.first_name} ${p.last_name}`, p.id_number, p.phone, p.street, p.city]
+  },
+  nedarim: {
+    label: 'נדרים פלוס',
+    headers: ['שם פרטי', 'שם משפחה', 'תעודת זהות', 'טלפון נייד', 'דוא"ל'],
+    row: p => [p.first_name, p.last_name, p.id_number, p.phone, p.email]
+  }
+};
+
+function exportResultsCustom(formatKey) {
+  if (!lastSearchResults.length) return;
+  const fmt = CUSTOM_EXPORT_FORMATS[formatKey];
+  const rows = [fmt.headers.join(',')];
+  lastSearchResults.forEach(p => rows.push(fmt.row(p).map(csvEscape).join(',')));
+  const csv = '﻿' + rows.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `anshei-kesher-${formatKey}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  logAudit('export', 'people', null, { format: formatKey, count: lastSearchResults.length });
+}
+
+/** ================= שמירת חיפושים ================= */
+
+function currentSearchFilters() {
+  return {
+    category: val('q_category'), minAge: val('q_minAge'), maxAge: val('q_maxAge'),
+    street: val('q_street'), schoolClass: val('q_class'), gender: val('q_gender')
+  };
+}
+
+async function saveCurrentSearch() {
+  const name = prompt('שם לחיפוש הזה (למשל: "מטרנות תשפ\'ז"):');
+  if (!name) return;
+  await AUTH.api('saved_searches', { method: 'POST', body: JSON.stringify({ name, filters: currentSearchFilters() }) });
+  refreshSavedSearches();
+}
+
+async function refreshSavedSearches() {
+  const el = document.getElementById('savedSearchesList');
+  if (!el) return;
+  const rows = await AUTH.api('saved_searches?select=*&order=created_at.desc') || [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+  el.innerHTML = rows.map(r =>
+    `<span style="display:inline-flex; align-items:center; gap:6px; background:var(--accent-soft); ` +
+    `color:var(--primary-dark); padding:5px 6px 5px 12px; border-radius:999px; font-size:.8rem; margin:2px">` +
+    `<button style="margin:0; background:none; border:none; padding:0; cursor:pointer; color:var(--primary-dark); font-weight:700"` +
+    ` onclick='applySavedSearch(${JSON.stringify(r.filters)})'>${r.name}</button>` +
+    `<i class="bi bi-x-circle" style="cursor:pointer" onclick="deleteSavedSearch('${r.id}')"></i></span>`
+  ).join('');
+}
+
+function applySavedSearch(filters) {
+  document.getElementById('q_category').value = filters.category || '';
+  document.getElementById('q_minAge').value = filters.minAge || '';
+  document.getElementById('q_maxAge').value = filters.maxAge || '';
+  document.getElementById('q_street').value = filters.street || '';
+  document.getElementById('q_class').value = filters.schoolClass || '';
+  document.getElementById('q_gender').value = filters.gender || '';
+  runSearch();
+}
+
+async function deleteSavedSearch(id) {
+  await AUTH.api(`saved_searches?id=eq.${id}`, { method: 'DELETE' });
+  refreshSavedSearches();
+}
+refreshSavedSearches();
 
 function csvEscape(v) {
   if (v === null || v === undefined) return '';
