@@ -26,6 +26,7 @@
 
     <div class="tabs">
       <div class="tab active" data-panel="addPanel"><i class="bi bi-person-plus"></i> הוספת איש קשר</div>
+      <div class="tab" data-panel="familiesPanel"><i class="bi bi-people"></i> משפחות</div>
       <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i> ייבוא רשימה</div>
       <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i> חיפוש</div>
       <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i> קטגוריות</div>
@@ -40,17 +41,42 @@
           <label>שם משפחה<input id="f_last_name"></label>
           <label>תעודת זהות<input id="f_id_number"></label>
           <label>תאריך לידה<input id="f_birth_date" type="date"></label>
+          <label>בר/בת מצווה<input id="f_bar_mitzva_date" type="date"></label>
           <label>עדה<input id="f_edah" placeholder="אשכנזי / ספרדי / חסיד"></label>
           <label>מגדר
             <select id="f_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select>
           </label>
           <label>רחוב<input id="f_street"></label>
           <label>עיר<input id="f_city"></label>
+          <label>בן/בת זוג (אופציונלי — מקשר לכרטיס משפחה)
+            <select id="f_spouse"><option value="">--</option></select>
+          </label>
         </div>
         <label style="margin-top:14px">הערות<textarea id="f_notes" rows="2" style="font-family:var(--font)"></textarea></label>
         <button class="primary" onclick="submitPerson()"><i class="bi bi-check2"></i> שמור</button>
         <div id="addMsg"></div>
       </div>
+    </div>
+
+    <!-- ===== משפחות ===== -->
+    <div id="familiesPanel" class="panel">
+      <div class="card">
+        <h3><i class="bi bi-house-heart"></i> כרטיס משפחה חדש</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">
+          בוחרים ראש משפחה (ובן/בת זוג, אם רלוונטי) מתוך אנשי הקשר הקיימים — נוצר כרטיס משפחה מאוחד עם בר/בת מצווה וילדים.
+        </p>
+        <div class="field-grid">
+          <label>ראש משפחה
+            <select id="fam_head"><option value="">בחר איש קשר...</option></select>
+          </label>
+          <label>בן/בת זוג (אופציונלי)
+            <select id="fam_spouse"><option value="">--</option></select>
+          </label>
+        </div>
+        <button class="primary" onclick="createFamily()"><i class="bi bi-house-add"></i> צור כרטיס משפחה</button>
+        <div id="famMsg"></div>
+      </div>
+      <div id="familiesList"></div>
     </div>
 
     <!-- ===== ייבוא ===== -->
@@ -70,6 +96,11 @@
     <div id="searchPanel" class="panel">
       <div class="card">
         <h3><i class="bi bi-search"></i> חיפוש וסינון</h3>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px">
+          <button class="secondary" style="margin:0" onclick="applyAgePreset(3,4)"><i class="bi bi-flower1"></i> עולים לגן (3-4)</button>
+          <button class="secondary" style="margin:0" onclick="applyAgePreset(11,13)"><i class="bi bi-star"></i> מתקרבים לבר/בת מצווה (11-13)</button>
+          <button class="secondary" style="margin:0" onclick="applyAgePreset(0,1)"><i class="bi bi-balloon"></i> תינוקות (0-1)</button>
+        </div>
         <div class="field-grid">
           <label>קטגוריה
             <select id="q_category"><option value="">הכל</option></select>

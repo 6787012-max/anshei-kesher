@@ -17,21 +17,178 @@ function showMsg(elId, text, cls) {
 /** ================= הוספה ידנית ================= */
 
 async function submitPerson() {
+  const spouseId = val('f_spouse') || null;
   const person = {
     first_name: val('f_first_name'), last_name: val('f_last_name'),
     id_number: val('f_id_number') || null, birth_date: val('f_birth_date') || null,
+    bar_mitzva_date: val('f_bar_mitzva_date') || null,
     edah: val('f_edah'), gender: val('f_gender') || null,
     street: val('f_street'), city: val('f_city'), notes: val('f_notes'),
     source: 'manual'
   };
   try {
-    await AUTH.api('people', { method: 'POST', body: JSON.stringify(person) });
-    showMsg('addMsg', 'נשמר בהצלחה', 'ok');
-    ['f_first_name','f_last_name','f_id_number','f_birth_date','f_edah','f_street','f_city','f_notes']
+    const created = await AUTH.api('people', {
+      method: 'POST', body: JSON.stringify(person), headers: { 'Prefer': 'return=representation' }
+    });
+    const newId = created && created[0] && created[0].id;
+    if (spouseId && newId) {
+      await linkSpouses(newId, spouseId);
+    }
+    showMsg('addMsg', 'נשמר בהצלחה' + (spouseId ? ' וקושר לבן/בת הזוג' : ''), 'ok');
+    ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city','f_notes']
       .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f_spouse').value = '';
+    loadPeopleIntoSelects();
   } catch (e) {
     showMsg('addMsg', 'שגיאה: ' + e.message, 'err');
   }
+}
+
+/** ================= משפחות: קישור בני זוג + כרטיס משפחה ================= */
+
+// מקשר שני אנשים כבני זוג: spouse_id הדדי + אותו family_id (יוצר family אם צריך).
+async function linkSpouses(personId, spouseId) {
+  const spouse = (await AUTH.api(`people?id=eq.${spouseId}&select=family_id`))[0];
+  let familyId = spouse && spouse.family_id;
+  if (!familyId) {
+    const fam = await AUTH.api('families', {
+      method: 'POST', body: JSON.stringify({ head_of_family_id: spouseId }),
+      headers: { 'Prefer': 'return=representation' }
+    });
+    familyId = fam[0].id;
+    await AUTH.api(`people?id=eq.${spouseId}`, { method: 'PATCH', body: JSON.stringify({ family_id: familyId }) });
+  }
+  await AUTH.api(`people?id=eq.${personId}`, { method: 'PATCH',
+    body: JSON.stringify({ spouse_id: spouseId, family_id: familyId }) });
+  await AUTH.api(`people?id=eq.${spouseId}`, { method: 'PATCH',
+    body: JSON.stringify({ spouse_id: personId }) });
+}
+
+async function loadPeopleIntoSelects() {
+  const people = await AUTH.api('people?select=id,first_name,last_name,family_id&order=first_name') || [];
+  ['f_spouse', 'fam_head', 'fam_spouse'].forEach(selId => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">' + (selId === 'f_spouse' ? '--' : 'בחר איש קשר...') + '</option>';
+    people.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = `${p.first_name} ${p.last_name}`;
+      sel.appendChild(opt);
+    });
+    sel.value = keep;
+  });
+}
+loadPeopleIntoSelects();
+
+async function createFamily() {
+  const headId = val('fam_head');
+  const spouseId = val('fam_spouse');
+  if (!headId) { showMsg('famMsg', 'יש לבחור ראש משפחה', 'err'); return; }
+  try {
+    const head = (await AUTH.api(`people?id=eq.${headId}&select=family_id`))[0];
+    let familyId = head.family_id;
+    if (!familyId) {
+      const fam = await AUTH.api('families', {
+        method: 'POST', body: JSON.stringify({ head_of_family_id: headId }),
+        headers: { 'Prefer': 'return=representation' }
+      });
+      familyId = fam[0].id;
+      await AUTH.api(`people?id=eq.${headId}`, { method: 'PATCH', body: JSON.stringify({ family_id: familyId }) });
+    }
+    if (spouseId) await linkSpouses(spouseId, headId);
+    showMsg('famMsg', 'כרטיס המשפחה נוצר', 'ok');
+    document.getElementById('fam_head').value = '';
+    document.getElementById('fam_spouse').value = '';
+    refreshFamiliesList();
+  } catch (e) {
+    showMsg('famMsg', 'שגיאה: ' + e.message, 'err');
+  }
+}
+
+function calcAge(birthDateStr) {
+  if (!birthDateStr) return null;
+  const bd = new Date(birthDateStr), today = new Date();
+  let age = today.getFullYear() - bd.getFullYear();
+  const m = today.getMonth() - bd.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--;
+  return age;
+}
+
+async function refreshFamiliesList() {
+  const el = document.getElementById('familiesList');
+  const families = await AUTH.api('families?select=*') || [];
+  const allPeople = await AUTH.api('people?select=*') || [];
+  if (!families.length) {
+    el.innerHTML = '<div class="card" style="text-align:center; color:var(--muted)"><i class="bi bi-house"></i> אין עדיין כרטיסי משפחה</div>';
+    return;
+  }
+  el.innerHTML = '';
+  families.forEach(fam => {
+    const members = allPeople.filter(p => p.family_id === fam.id);
+    const head = members.find(p => p.id === fam.head_of_family_id);
+    const spouse = head && head.spouse_id ? members.find(p => p.id === head.spouse_id) : null;
+    const children = members.filter(p => p.id !== fam.head_of_family_id && (!spouse || p.id !== spouse.id));
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    let html = `<h3><i class="bi bi-house-heart"></i> משפחת ${head ? head.last_name : '?'}</h3>`;
+    html += `<p><b>${head ? head.first_name + ' ' + head.last_name : '—'}</b>` +
+      (spouse ? ` <i class="bi bi-heart-fill" style="color:var(--accent); font-size:.7rem"></i> <b>${spouse.first_name} ${spouse.last_name}</b>` : '') + '</p>';
+
+    if (children.length) {
+      html += '<div class="table-wrap"><table><tr><th>ילד/ה</th><th>תאריך לידה</th><th>גיל</th><th>בר/בת מצווה</th></tr>';
+      children
+        .slice()
+        .sort((a, b) => (b.birth_date || '').localeCompare(a.birth_date || ''))
+        .forEach(c => {
+          html += `<tr><td>${c.first_name} ${c.last_name}</td><td>${c.birth_date || '-'}</td>` +
+            `<td>${calcAge(c.birth_date) ?? '-'}</td><td>${c.bar_mitzva_date || '-'}</td></tr>`;
+        });
+      html += '</table></div>';
+    } else {
+      html += '<p style="color:var(--muted); font-size:.85rem">אין עדיין ילדים בכרטיס הזה</p>';
+    }
+    card.innerHTML = html;
+
+    const addChildBtn = document.createElement('button');
+    addChildBtn.className = 'secondary';
+    addChildBtn.innerHTML = '<i class="bi bi-person-plus"></i> הוסף ילד/ה למשפחה';
+    addChildBtn.onclick = () => openAddChildForm(card, fam.id);
+    card.appendChild(addChildBtn);
+
+    el.appendChild(card);
+  });
+}
+refreshFamiliesList();
+
+function openAddChildForm(card, familyId) {
+  if (card.querySelector('.child-form')) return;
+  const form = document.createElement('div');
+  form.className = 'child-form';
+  form.style = 'margin-top:14px; padding-top:14px; border-top:1px solid var(--line)';
+  form.innerHTML = `
+    <div class="field-grid">
+      <label>שם פרטי<input class="cf_first"></label>
+      <label>מגדר<select class="cf_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select></label>
+      <label>תאריך לידה<input class="cf_birth" type="date"></label>
+      <label>בר/בת מצווה<input class="cf_bm" type="date"></label>
+    </div>
+    <button class="primary cf_save"><i class="bi bi-check2"></i> שמור ילד/ה</button>`;
+  card.appendChild(form);
+  form.querySelector('.cf_save').onclick = async () => {
+    const lastName = card.querySelector('h3').textContent.replace('משפחת ', '').trim();
+    const child = {
+      first_name: form.querySelector('.cf_first').value,
+      last_name: lastName,
+      gender: form.querySelector('.cf_gender').value || null,
+      birth_date: form.querySelector('.cf_birth').value || null,
+      bar_mitzva_date: form.querySelector('.cf_bm').value || null,
+      family_id: familyId, source: 'manual'
+    };
+    await AUTH.api('people', { method: 'POST', body: JSON.stringify(child) });
+    refreshFamiliesList();
+  };
 }
 
 /** ================= ייבוא + דדופליקציה ================= */
@@ -167,6 +324,12 @@ function ageToDates(minAge, maxAge) {
   return out;
 }
 
+function applyAgePreset(minAge, maxAge) {
+  document.getElementById('q_minAge').value = minAge;
+  document.getElementById('q_maxAge').value = maxAge;
+  runSearch();
+}
+
 async function runSearch() {
   const params = ['select=*'];
   if (val('q_street')) params.push(`street=eq.${encodeURIComponent(val('q_street'))}`);
@@ -200,9 +363,9 @@ async function runSearch() {
     return;
   }
   let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות</h3>` +
-    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>רחוב</th></tr>';
+    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th></tr>';
   people.forEach(p => {
-    html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${p.street || ''}</td></tr>`;
+    html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td></tr>`;
   });
   html += '</table></div></div>';
   el.innerHTML = html;
