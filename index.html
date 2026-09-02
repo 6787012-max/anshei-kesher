@@ -65,6 +65,15 @@
     <!-- ===== הוספה ידנית ===== -->
     <div id="addPanel" class="panel">
       <div class="card">
+        <h3><i class="bi bi-camera"></i> מילוי אוטומטי מתמונת ת"ז / ספח</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">
+          זיהוי טקסט רץ <b>בדפדפן שלך בלבד</b> (Tesseract.js) — התמונה לא נשלחת לשום שרת חיצוני. הדיוק בינוני, תמיד תבדוק/תתקן את השדות לפני שמירה.
+        </p>
+        <input type="file" id="ocrFile" accept="image/*" onchange="runOcr()">
+        <div id="ocrProgress" style="margin-top:10px"></div>
+        <div id="ocrResult" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
         <h3><i class="bi bi-person-plus"></i> פרטי איש קשר</h3>
         <div class="field-grid">
           <label>שם פרטי<input id="f_first_name"></label>
@@ -274,6 +283,10 @@
         <p>התיבה עם סמל הזכוכית המגדלת, למעלה ליד הלוגו. מחפשת בו-זמנית בשם, תעודת זהות, טלפון, כינוי (למשל "יוסי" ימצא גם "יוסף"), ורחוב — בלי לעבור טאב. הקלד 2 תווים ומעלה ותראה תוצאות מיד מתחת לתיבה.</p>
       </div>
       <div class="card">
+        <h3><i class="bi bi-camera"></i> מילוי אוטומטי מתמונה (OCR)</h3>
+        <p>בראש טאב "הוספת איש קשר": מעלים תמונת ת"ז/ספח, הזיהוי רץ <b>בדפדפן שלך בלבד</b> (לא נשלח לשום שרת חיצוני, כולל לא ל-Claude/Gemini/OpenAI). המערכת מנסה לשלוף שם/ת"ז/תאריך לידה ומציגה אותם לאישור — הדיוק בינוני, <b>תמיד תבדוק ותתקן</b> לפני שלוחצים "מלא בטופס למטה".</p>
+      </div>
+      <div class="card">
         <h3><i class="bi bi-person-plus"></i> הוספת איש קשר</h3>
         <p>טופס פרטים מלא. שדה <b>"בן/בת זוג"</b> — אם בוחרים אדם קיים מהרשימה, המערכת יוצרת/מעדכנת אוטומטית כרטיס משפחה משותף (רואים אותו בטאב "משפחות"). שדה <b>"כינויים"</b> — כל שם נוסף שבו קוראים לאדם הזה (מופרד בפסיקים), עוזר לחיפוש ולזיהוי כפילויות.</p>
       </div>
@@ -313,6 +326,7 @@
     </div>
   </div>
 
+  <script src="vendor/tesseract/tesseract.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/app.js"></script>

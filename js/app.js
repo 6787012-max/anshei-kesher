@@ -1,5 +1,90 @@
 AUTH.requireLogin();
 
+/** ================= OCR ספח/ת"ז — רץ בדפדפן בלבד, בלי API בתשלום ================= */
+
+async function runOcr() {
+  const fileInput = document.getElementById('ocrFile');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const progressEl = document.getElementById('ocrProgress');
+  const resultEl = document.getElementById('ocrResult');
+  resultEl.innerHTML = '';
+  progressEl.innerHTML = '<div class="msg ok">טוען מנוע זיהוי טקסט...</div>';
+
+  try {
+    const worker = await Tesseract.createWorker('heb', 1, {
+      workerPath: 'vendor/tesseract/worker.min.js',
+      corePath: 'vendor/tesseract/tesseract-core-simd-lstm.wasm.js',
+      langPath: 'vendor/tesseract/',
+      gzip: true,
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          progressEl.innerHTML = `<div class="msg ok">מזהה טקסט... ${Math.round(m.progress * 100)}%</div>`;
+        }
+      }
+    });
+    const { data: { text } } = await worker.recognize(file);
+    await worker.terminate();
+    progressEl.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>';
+    showOcrExtraction(text);
+  } catch (e) {
+    progressEl.innerHTML = `<div class="msg err">שגיאת זיהוי: ${e.message}</div>`;
+  }
+}
+
+function extractFromOcrText(text) {
+  const idMatch = text.match(/\b\d{9}\b/) || text.match(/\b\d{7,8}\b/);
+  const dateMatch = text.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b/);
+  let birthDate = '';
+  if (dateMatch) {
+    const [, d, m, y] = dateMatch;
+    birthDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  // שם: השורה הראשונה שמכילה רק אותיות עבריות ורווחים, אורך סביר,
+  // ולא כותרת סטנדרטית של ספח ת"ז (מדינת ישראל / תעודת זהות / משרד הפנים).
+  const HEADER_WORDS = /מדינת|ישראל|תעודת|זהות|משרד|הפנים|רשות|אוכלוסין/;
+  const nameLine = text.split('\n').map(l => l.trim())
+    .find(l => /^[֐-׿\s'"]{3,40}$/.test(l) && l.split(/\s+/).length <= 4 && !HEADER_WORDS.test(l));
+  let firstName = '', lastName = '';
+  if (nameLine) {
+    const parts = nameLine.split(/\s+/);
+    firstName = parts[0] || '';
+    lastName = parts.slice(1).join(' ') || '';
+  }
+  return { id_number: idMatch ? idMatch[0] : '', birth_date: birthDate, first_name: firstName, last_name: lastName };
+}
+
+function showOcrExtraction(rawText) {
+  const guess = extractFromOcrText(rawText);
+  const resultEl = document.getElementById('ocrResult');
+  resultEl.innerHTML = `
+    <div class="card" style="margin-top:0">
+      <p style="font-size:.82rem; color:var(--muted)">שדות שזוהו — תקן במידת הצורך, ואז "מלא בטופס למטה":</p>
+      <div class="field-grid">
+        <label>שם פרטי<input id="ocr_first"></label>
+        <label>שם משפחה<input id="ocr_last"></label>
+        <label>ת"ז<input id="ocr_id"></label>
+        <label>תאריך לידה<input id="ocr_birth" type="date"></label>
+      </div>
+      <button class="primary" onclick="applyOcrToForm()"><i class="bi bi-arrow-down-circle"></i> מלא בטופס למטה</button>
+      <details style="margin-top:10px"><summary style="cursor:pointer; color:var(--muted); font-size:.8rem">טקסט גולמי שזוהה</summary>
+        <pre style="white-space:pre-wrap; font-size:.75rem; color:var(--muted); margin-top:6px">${rawText.replace(/</g, '&lt;')}</pre>
+      </details>
+    </div>`;
+  document.getElementById('ocr_first').value = guess.first_name;
+  document.getElementById('ocr_last').value = guess.last_name;
+  document.getElementById('ocr_id').value = guess.id_number;
+  document.getElementById('ocr_birth').value = guess.birth_date;
+}
+
+function applyOcrToForm() {
+  document.getElementById('f_first_name').value = val('ocr_first');
+  document.getElementById('f_last_name').value = val('ocr_last');
+  document.getElementById('f_id_number').value = val('ocr_id');
+  document.getElementById('f_birth_date').value = val('ocr_birth');
+  document.getElementById('f_first_name').scrollIntoView({ behavior: 'smooth' });
+}
+
 /** ================= חיפוש גלובלי (בראש הדף) ================= */
 
 let globalSearchCache = null;
