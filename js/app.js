@@ -187,6 +187,19 @@ async function refreshDashboard() {
         <span>${y}</span><b>${byYear[y]}</b></div>`
     ).join('') || '<p style="color:var(--muted)">אין נתונים</p>';
   }
+
+  const EVENT_LABELS = { yom_huledet: 'יום הולדת', bar_bat_mitzva: 'בר/בת מצווה', yom_nisuin: 'יום נישואין' };
+  const EVENT_ICONS = { yom_huledet: 'bi-balloon', bar_bat_mitzva: 'bi-star', yom_nisuin: 'bi-heart' };
+  const eventsEl = document.getElementById('upcomingEvents');
+  if (eventsEl) {
+    const events = (await AUTH.rpc('upcoming_events', { days_ahead: 90 }) || [])
+      .filter(e => e.days_until >= 0 && e.days_until <= 90);
+    eventsEl.innerHTML = events.length ? events.map(e =>
+      `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line)">
+        <span><i class="bi ${EVENT_ICONS[e.event_type]}" style="color:var(--accent)"></i> ${e.full_name} — ${EVENT_LABELS[e.event_type]}</span>
+        <b>${e.days_until === 0 ? 'היום!' : 'בעוד ' + e.days_until + ' ימים'}</b></div>`
+    ).join('') : '<p style="color:var(--muted)">אין אירועים ב-90 הימים הקרובים</p>';
+  }
 }
 refreshDashboard();
 
@@ -437,24 +450,77 @@ function openAddChildForm(card, familyId) {
   };
 }
 
-/** ================= ייבוא + דדופליקציה ================= */
+/** ================= ייבוא + מיפוי עמודות + דדופליקציה ================= */
 
-function parseCsv(text) {
-  const lines = text.trim().split('\n');
+function parseCsvRaw(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim());
   const headers = lines[0].split(',').map(h => h.trim());
-  return lines.slice(1).filter(l => l.trim()).map(line => {
-    const vals = line.split(',').map(v => v.trim());
+  const rows = lines.slice(1).map(line => line.split(',').map(v => v.trim()));
+  return { headers, rows };
+}
+
+const IMPORT_TARGET_FIELDS = [
+  ['', '— התעלם מהעמודה —'], ['first_name', 'שם פרטי'], ['last_name', 'שם משפחה'],
+  ['id_number', 'ת"ז'], ['birth_date', 'תאריך לידה'], ['street', 'רחוב'], ['city', 'עיר'],
+  ['edah', 'עדה'], ['gender', 'מגדר'], ['phone', 'טלפון'], ['phone2', 'טלפון נוסף'],
+  ['email', 'מייל'], ['school_class', 'כיתה'], ['notes', 'הערות']
+];
+
+// ניחוש אוטומטי לפי מילות מפתח בשם העמודה — נקודת התחלה, המשתמש יכול לתקן.
+function guessFieldForHeader(header) {
+  const h = header.toLowerCase();
+  const guesses = [
+    [/first.?name|שם פרטי|^שם$/, 'first_name'], [/last.?name|שם משפחה|משפחה/, 'last_name'],
+    [/id.?number|ת"?ז|תעודת זהות/, 'id_number'], [/birth|לידה/, 'birth_date'],
+    [/street|רחוב|כתובת/, 'street'], [/city|עיר|יישוב/, 'city'],
+    [/edah|עדה/, 'edah'], [/gender|מגדר|מין/, 'gender'],
+    [/phone2|טלפון נוסף/, 'phone2'], [/phone|טלפון|נייד/, 'phone'],
+    [/email|מייל|דוא/, 'email'], [/class|כיתה/, 'school_class'], [/note|הער/, 'notes']
+  ];
+  for (const [re, field] of guesses) if (re.test(h)) return field;
+  return '';
+}
+
+let csvParsed = null;
+
+function startColumnMapping() {
+  csvParsed = parseCsvRaw(val('csvInput'));
+  if (!csvParsed.headers.length) return;
+  const area = document.getElementById('mappingArea');
+  let html = '<div class="card"><h3><i class="bi bi-diagram-3"></i> שייכו כל עמודה לשדה במערכת</h3>' +
+    '<div class="table-wrap"><table><tr><th>עמודה בקובץ</th><th>דוגמה</th><th>שדה במערכת</th></tr>';
+  csvParsed.headers.forEach((h, i) => {
+    const sample = (csvParsed.rows[0] && csvParsed.rows[0][i]) || '';
+    const guess = guessFieldForHeader(h);
+    html += `<tr><td><b>${h}</b></td><td style="color:var(--muted)">${sample}</td><td>` +
+      `<select class="mapSelect" data-col="${i}">` +
+      IMPORT_TARGET_FIELDS.map(([val_, label]) => `<option value="${val_}" ${val_ === guess ? 'selected' : ''}>${label}</option>`).join('') +
+      '</select></td></tr>';
+  });
+  html += '</table></div>' +
+    '<button class="primary" onclick="submitImportWithMapping()"><i class="bi bi-check2-circle"></i> ייבא ובדוק כפילויות</button></div>';
+  area.innerHTML = html;
+}
+
+function applyMappingToRows() {
+  const selects = Array.from(document.querySelectorAll('.mapSelect'));
+  const colToField = {};
+  selects.forEach(s => { if (s.value) colToField[Number(s.dataset.col)] = s.value; });
+  return csvParsed.rows.map(cells => {
     const row = {};
-    headers.forEach((h, i) => row[h] = vals[i] || '');
+    Object.keys(colToField).forEach(colIdx => { row[colToField[colIdx]] = cells[colIdx] || ''; });
     return row;
   });
 }
 
+async function submitImportWithMapping() {
+  const rows = applyMappingToRows();
+  await runImport(rows, val('importSource') || 'ייבוא ידני');
+}
+
 let pendingReview = [];
 
-async function submitImport() {
-  const rows = parseCsv(val('csvInput'));
-  const source = val('importSource') || 'ייבוא ידני';
+async function runImport(rows, source) {
   pendingReview = [];
   let autoMerged = 0, imported = 0;
 
