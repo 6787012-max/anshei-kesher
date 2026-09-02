@@ -45,8 +45,70 @@ document.querySelectorAll('.tab').forEach(t => {
     document.getElementById(t.dataset.panel).classList.add('active');
     if (t.dataset.panel === 'homePanel') refreshDashboard();
     if (t.dataset.panel === 'auditPanel') refreshAuditLog();
+    if (t.dataset.panel === 'usersPanel') refreshUsersList();
   };
 });
+
+/** ================= משתמשים והרשאות ================= */
+
+function toggleLimitedFields() {
+  document.getElementById('u_limitedFields').style.display = val('u_level') === 'full' ? 'none' : 'block';
+}
+
+async function callAdminFn(payload) {
+  const session = AUTH.getSession();
+  const res = await fetch(`${CFG.url}/functions/v1/anshei-kesher-admin`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': CFG.anon, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה');
+  return data;
+}
+
+async function createUser() {
+  const email = val('u_email');
+  const password = val('u_password');
+  const access_level = val('u_level');
+  const allowed_fields = Array.from(document.querySelectorAll('.u_field:checked')).map(el => el.value);
+  const allowed_categories = val('u_categories') ? val('u_categories').split(',').map(s => s.trim()).filter(Boolean) : [];
+  try {
+    const result = await callAdminFn({ action: 'create_user', email, password, access_level, allowed_fields, allowed_categories });
+    logAudit('create', 'user', result.user_id, { email, access_level });
+    showMsg('userMsg', 'המשתמש נוצר בהצלחה. תעביר לו את הסיסמה הזמנית בערוץ מאובטח.', 'ok');
+    document.getElementById('u_email').value = '';
+    document.getElementById('u_password').value = '';
+    document.getElementById('u_categories').value = '';
+    refreshUsersList();
+  } catch (e) {
+    showMsg('userMsg', 'שגיאה: ' + e.message, 'err');
+  }
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm(`למחוק את המשתמש ${email}?`)) return;
+  try {
+    await callAdminFn({ action: 'delete_user', user_id: userId });
+    logAudit('delete', 'user', userId, { email });
+    refreshUsersList();
+  } catch (e) {
+    alert('שגיאה: ' + e.message);
+  }
+}
+
+async function refreshUsersList() {
+  const el = document.getElementById('usersList');
+  const users = await AUTH.api('app_users?select=*');
+  if (!users || !users.length) { el.innerHTML = '<p style="color:var(--muted)">אין משתמשים</p>'; return; }
+  el.innerHTML = '<table><tr><th>אימייל</th><th>רמת גישה</th><th>שדות מותרים</th><th>קטגוריות מותרות</th><th></th></tr>' +
+    users.map(u => `<tr><td>${u.email}</td><td>${u.access_level}</td>` +
+      `<td style="font-size:.78rem">${(u.allowed_fields||[]).join(', ')}</td>` +
+      `<td style="font-size:.78rem">${(u.allowed_categories||[]).join(', ')}</td>` +
+      `<td>${u.email === AUTH.getSession().user.email ? '' :
+        `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="deleteUser('${u.user_id}','${u.email}')"><i class="bi bi-trash"></i></button>`}</td></tr>`
+    ).join('') + '</table>';
+}
 
 /** ================= יומן ביקורת ================= */
 
@@ -181,7 +243,7 @@ async function linkSpouses(personId, spouseId) {
 
 async function loadPeopleIntoSelects() {
   const people = await AUTH.api('people?select=id,first_name,last_name,family_id&order=first_name') || [];
-  ['f_spouse', 'fam_head', 'fam_spouse', 'rel_a', 'rel_b'].forEach(selId => {
+  ['f_spouse', 'fam_head', 'fam_spouse', 'rel_a', 'rel_b', 'ia_person'].forEach(selId => {
     const sel = document.getElementById(selId);
     if (!sel) return;
     const keep = sel.value;
@@ -255,8 +317,38 @@ async function refreshRelationsList() {
     '</table></div>';
 }
 
+async function addInteraction() {
+  const person_id = val('ia_person'), kind = val('ia_kind'), content = val('ia_content');
+  if (!person_id || !content) { showMsg('iaMsg', 'יש לבחור אדם ולכתוב תוכן', 'err'); return; }
+  try {
+    await AUTH.api('interactions', { method: 'POST', body: JSON.stringify({ person_id, kind, content }) });
+    logAudit('create', 'interaction', person_id, { kind });
+    document.getElementById('ia_content').value = '';
+    showMsg('iaMsg', 'נשמר', 'ok');
+    refreshInteractionsList();
+  } catch (e) {
+    showMsg('iaMsg', 'שגיאה: ' + e.message, 'err');
+  }
+}
+
+const INTERACTION_LABELS = { call: 'שיחת טלפון', email: 'מייל', meeting: 'פגישה', voice: 'הודעה קולית', note: 'הערה' };
+
+async function refreshInteractionsList() {
+  const el = document.getElementById('iaList');
+  if (!el) return;
+  const rows = await AUTH.api('interactions?select=*&order=created_at.desc&limit=30') || [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+  const people = await AUTH.rpc('people_for_me', {}) || [];
+  const byId = Object.fromEntries(people.map(p => [p.id, `${p.first_name} ${p.last_name}`]));
+  el.innerHTML = '<div class="table-wrap"><table><tr><th>עם מי</th><th>סוג</th><th>תוכן</th><th>מתי</th></tr>' +
+    rows.map(r => `<tr><td>${byId[r.person_id] || '?'}</td><td>${INTERACTION_LABELS[r.kind] || r.kind}</td>` +
+      `<td>${r.content}</td><td style="font-size:.78rem">${new Date(r.created_at).toLocaleDateString('he-IL')}</td></tr>`).join('') +
+    '</table></div>';
+}
+
 async function refreshFamiliesList() {
   refreshRelationsList();
+  refreshInteractionsList();
   const el = document.getElementById('familiesList');
   const families = await AUTH.api('families?select=*') || [];
   const allPeople = await AUTH.rpc('people_for_me', {}) || [];
@@ -552,12 +644,33 @@ async function runSearch() {
   let html = `<div class="card"><h3><i class="bi bi-list-check"></i> ${people.length} תוצאות ` +
     `<button class="secondary" style="margin:0 0 0 8px; font-size:.78rem; padding:6px 12px" onclick="exportResultsToCsv()">` +
     `<i class="bi bi-download"></i> ייצוא לאקסל (CSV)</button></h3>` +
-    '<div class="table-wrap"><table><tr><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th></tr>';
+    `<div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap">` +
+    `<input id="bulkTagName" placeholder="שם קטגוריה" style="max-width:180px; margin:0">` +
+    `<button class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="bulkTagSelected()">` +
+    `<i class="bi bi-tags"></i> הוסף קטגוריה לנבחרים</button></div>` +
+    '<div class="table-wrap"><table><tr><th><input type="checkbox" onclick="toggleAllResultChecks(this)"></th><th>שם</th><th>ת"ז</th><th>תאריך לידה</th><th>גיל</th><th>רחוב</th><th>טלפון</th></tr>';
   people.forEach(p => {
-    html += `<tr><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td></tr>`;
+    html += `<tr><td><input type="checkbox" class="resultCheck" value="${p.id}"></td><td>${p.first_name} ${p.last_name}</td><td>${p.id_number || ''}</td><td>${p.birth_date || ''}</td><td>${calcAge(p.birth_date) ?? ''}</td><td>${p.street || ''}</td><td>${p.phone || ''}</td></tr>`;
   });
   html += '</table></div></div>';
   el.innerHTML = html;
+}
+
+function toggleAllResultChecks(master) {
+  document.querySelectorAll('.resultCheck').forEach(cb => cb.checked = master.checked);
+}
+
+async function bulkTagSelected() {
+  const catName = val('bulkTagName');
+  if (!catName) return;
+  const ids = Array.from(document.querySelectorAll('.resultCheck:checked')).map(cb => cb.value);
+  if (!ids.length) { alert('לא נבחרו אנשים'); return; }
+  await AUTH.api('categories', { method: 'POST', body: JSON.stringify({ name: catName }) }).catch(() => {});
+  for (const id of ids) {
+    await AUTH.api('person_categories', { method: 'POST', body: JSON.stringify({ person_id: id, category_name: catName }) }).catch(() => {});
+  }
+  logAudit('bulk_tag', 'category', null, { category: catName, count: ids.length });
+  alert(`הוספה בוצעה ל-${ids.length} אנשים`);
 }
 
 let lastSearchResults = [];

@@ -39,6 +39,7 @@
       <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i> ייבוא רשימה</div>
       <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i> חיפוש</div>
       <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i> קטגוריות</div>
+      <div class="tab" data-panel="usersPanel"><i class="bi bi-shield-lock"></i> משתמשים</div>
       <div class="tab" data-panel="auditPanel"><i class="bi bi-journal-text"></i> יומן ביקורת</div>
       <div class="tab" data-panel="helpPanel"><i class="bi bi-question-circle"></i> עזרה</div>
     </div>
@@ -130,6 +131,27 @@
         <div id="relList" style="margin-top:14px"></div>
       </div>
 
+      <div class="card">
+        <h3><i class="bi bi-chat-left-text"></i> תיעוד מגע</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">תיעוד שיחה/מייל/פגישה עם אדם — נשמר להיסטוריה.</p>
+        <div class="field-grid">
+          <label>עם מי<select id="ia_person"><option value="">בחר...</option></select></label>
+          <label>סוג
+            <select id="ia_kind">
+              <option value="call">שיחת טלפון</option>
+              <option value="email">מייל</option>
+              <option value="meeting">פגישה</option>
+              <option value="voice">הודעה קולית</option>
+              <option value="note">הערה כללית</option>
+            </select>
+          </label>
+        </div>
+        <label style="margin-top:10px">תוכן/סיכום<textarea id="ia_content" rows="2" style="font-family:var(--font)"></textarea></label>
+        <button class="primary" onclick="addInteraction()"><i class="bi bi-plus-circle"></i> שמור</button>
+        <div id="iaMsg"></div>
+        <div id="iaList" style="margin-top:14px"></div>
+      </div>
+
       <div id="familiesList"></div>
     </div>
 
@@ -185,6 +207,41 @@
       </div>
     </div>
 
+    <!-- ===== משתמשים ===== -->
+    <div id="usersPanel" class="panel">
+      <div class="card">
+        <h3><i class="bi bi-person-fill-add"></i> הוספת משתמש</h3>
+        <div class="field-grid">
+          <label>אימייל<input id="u_email" type="email"></label>
+          <label>סיסמה זמנית (8 תווים לפחות)<input id="u_password" type="text"></label>
+          <label>רמת גישה
+            <select id="u_level" onchange="toggleLimitedFields()">
+              <option value="limited">limited — רואה רק מה שמסומן למטה</option>
+              <option value="full">full — גישה מלאה</option>
+            </select>
+          </label>
+        </div>
+        <div id="u_limitedFields">
+          <label style="margin-top:14px">שדות מותרים (limited בלבד)</label>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:6px">
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="first_name" checked> שם פרטי</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="last_name" checked> שם משפחה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="id_number"> ת"ז</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="phone"> טלפון</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="birth_date"> תאריך לידה</label>
+            <label style="font-weight:400"><input type="checkbox" class="u_field" value="street"> רחוב</label>
+          </div>
+          <label style="margin-top:14px">קטגוריות מותרות (מופרד בפסיק, ריק=לא רואה אף אחד)<input id="u_categories"></label>
+        </div>
+        <button class="primary" onclick="createUser()"><i class="bi bi-person-plus"></i> צור משתמש</button>
+        <div id="userMsg"></div>
+      </div>
+      <div class="card">
+        <h3><i class="bi bi-people"></i> משתמשים קיימים</h3>
+        <div id="usersList" class="table-wrap"></div>
+      </div>
+    </div>
+
     <!-- ===== יומן ביקורת ===== -->
     <div id="auditPanel" class="panel">
       <div class="card">
@@ -223,11 +280,19 @@
       </div>
       <div class="card">
         <h3><i class="bi bi-tags"></i> קטגוריות</h3>
-        <p>קטגוריות הן תיוגים חופשיים שאתה מגדיר בעצמך — אין רשימה קבועה בקוד. אחרי יצירת קטגוריה, משייכים אנשים אליה (כרגע דרך ה-API הישיר; שיוך מתוך המסך יתווסף). קטגוריה ששויכה זמינה מיד כפילטר בטאב חיפוש.</p>
+        <p>קטגוריות הן תיוגים חופשיים שאתה מגדיר בעצמך — אין רשימה קבועה בקוד. כדי לתייג הרבה אנשים בבת אחת: בטאב חיפוש, סנן למי שרוצים לתייג, סמן אותם בעמודת ה-checkbox (או "בחר הכל" בכותרת), כתוב שם קטגוריה בשדה שמעל התוצאות, ולחץ "הוסף קטגוריה לנבחרים".</p>
       </div>
       <div class="card">
-        <h3><i class="bi bi-shield-lock"></i> הרשאות משתמשים</h3>
-        <p>יש שני סוגי משתמשים: <b>full</b> (רואה ועורך הכל) ו-<b>limited</b> (רואה רק את השדות והקטגוריות שהוגדרו לו מראש — שאר השדות מוצגים ריקים, לא רק "מוסתרים" בעיצוב). הגדרת משתמש חדש והרשאותיו נעשית כרגע דרך מנהל המערכת (לא ממסך זה עדיין).</p>
+        <h3><i class="bi bi-shield-lock"></i> משתמשים והרשאות</h3>
+        <p>בטאב "משתמשים": יוצרים משתמש חדש עם אימייל+סיסמה זמנית, בוחרים <b>full</b> (רואה ועורך הכל) או <b>limited</b> (מסמנים בדיוק אילו שדות מותר לו לראות ולאילו קטגוריות יש לו גישה — כל השאר מוצג ריק לו, לא רק "מוסתר" בעיצוב, אלא ריק בתשובה שמגיעה מהשרת עצמו). מחיקת משתמש מוחקת גם את הכניסה שלו למערכת.</p>
+      </div>
+      <div class="card">
+        <h3><i class="bi bi-journal-text"></i> יומן ביקורת</h3>
+        <p>כל הוספת איש קשר, מיזוג כפילות, וניהול משתמשים נרשם כאן אוטומטית עם שם מי שביצע והזמן. ליד כל שורת "מיזוג" יש כפתור <b>"בטל מיזוג"</b> שמחזיר את הרשומה בדיוק למצב שהיה לפני המיזוג.</p>
+      </div>
+      <div class="card">
+        <h3><i class="bi bi-diagram-3"></i> קשרים ומגעים (בטאב משפחות)</h3>
+        <p><b>קשר כללי</b> — לא רק בעל/אישה: סבא/סבתא, אח/אחות, חתן/כלה, או כל קשר חופשי בין שני אנשים קיימים. <b>תיעוד מגע</b> — רישום שיחת טלפון/מייל/פגישה/הודעה קולית עם אדם מסוים, נשמר להיסטוריה ומוצג ברשימה למטה.</p>
       </div>
     </div>
   </div>
