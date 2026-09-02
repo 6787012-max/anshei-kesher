@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>אנשי קשר</title>
+  <meta name="robots" content="noindex">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; direction: rtl; max-width: 900px; }
+    h1 { font-size: 20px; display: flex; justify-content: space-between; align-items: center; }
+    #logoutBtn { font-size: 13px; color: #3367d6; cursor: pointer; background: none; border: none; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 2px solid #eee; flex-wrap: wrap; }
+    .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; }
+    .tab.active { border-bottom-color: #3367d6; font-weight: bold; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    label { display: block; margin-top: 10px; font-size: 13px; color: #444; }
+    input, select, textarea { width: 100%; max-width: 400px; padding: 6px; margin-top: 3px; box-sizing: border-box; }
+    button { margin-top: 14px; padding: 8px 18px; background: #3367d6; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #2851a3; }
+    table { border-collapse: collapse; width: 100%; margin-top: 14px; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: right; }
+    th { background: #f5f5f5; }
+    .review-box { border: 1px solid #e0a800; background: #fff8e1; padding: 10px; margin-top: 10px; border-radius: 4px; }
+    .msg { margin-top: 10px; padding: 8px; border-radius: 4px; }
+    .msg.ok { background: #e6f4ea; color: #137333; }
+    .msg.err { background: #fce8e6; color: #c5221f; }
+  </style>
+</head>
+<body>
+  <h1>אנשי קשר <button id="logoutBtn" onclick="AUTH.logout()">התנתקות</button></h1>
+  <div class="tabs">
+    <div class="tab active" data-panel="addPanel">הוספת איש קשר</div>
+    <div class="tab" data-panel="importPanel">ייבוא רשימה</div>
+    <div class="tab" data-panel="searchPanel">חיפוש</div>
+    <div class="tab" data-panel="categoriesPanel">קטגוריות</div>
+  </div>
+
+  <!-- ===== הוספה ידנית ===== -->
+  <div id="addPanel" class="panel active">
+    <label>שם פרטי<input id="f_first_name"></label>
+    <label>שם משפחה<input id="f_last_name"></label>
+    <label>תעודת זהות<input id="f_id_number"></label>
+    <label>תאריך לידה<input id="f_birth_date" type="date"></label>
+    <label>עדה<input id="f_edah" placeholder="אשכנזי / ספרדי / חסיד"></label>
+    <label>מגדר
+      <select id="f_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select>
+    </label>
+    <label>רחוב<input id="f_street"></label>
+    <label>עיר<input id="f_city"></label>
+    <label>הערות<textarea id="f_notes" rows="2"></textarea></label>
+    <button onclick="submitPerson()">שמור</button>
+    <div id="addMsg"></div>
+  </div>
+
+  <!-- ===== ייבוא ===== -->
+  <div id="importPanel" class="panel">
+    <p>הדביקו כאן CSV (שורה ראשונה = כותרות: first_name,last_name,id_number,birth_date,street,city,edah,gender)</p>
+    <textarea id="csvInput" rows="8" placeholder="first_name,last_name,id_number,birth_date&#10;יוסף,שניידר,123456789,1990-01-01"></textarea>
+    <label>שם המקור (למשל: "רשימה משעיה 02.09")<input id="importSource"></label>
+    <button onclick="submitImport()">ייבא ובדוק כפילויות</button>
+    <div id="importMsg"></div>
+    <div id="reviewArea"></div>
+  </div>
+
+  <!-- ===== חיפוש ===== -->
+  <div id="searchPanel" class="panel">
+    <label>קטגוריה
+      <select id="q_category"><option value="">הכל</option></select>
+    </label>
+    <label>גיל מ-<input id="q_minAge" type="number"></label>
+    <label>גיל עד<input id="q_maxAge" type="number"></label>
+    <label>רחוב<input id="q_street"></label>
+    <label>מגדר
+      <select id="q_gender"><option value="">הכל</option><option value="male">זכר</option><option value="female">נקבה</option></select>
+    </label>
+    <button onclick="runSearch()">חפש</button>
+    <div id="searchResults"></div>
+  </div>
+
+  <!-- ===== קטגוריות ===== -->
+  <div id="categoriesPanel" class="panel">
+    <label>שם קטגוריה חדשה<input id="newCatName"></label>
+    <label>קבוצה (אופציונלי)<input id="newCatGroup"></label>
+    <button onclick="addNewCategory()">הוסף קטגוריה</button>
+    <div id="catList"></div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
