@@ -33,16 +33,27 @@
     </div>
 
     <div class="tabs">
-      <div class="tab active" data-panel="addPanel"><i class="bi bi-person-plus"></i> הוספת איש קשר</div>
+      <div class="tab active" data-panel="homePanel"><i class="bi bi-house-door"></i> בית</div>
+      <div class="tab" data-panel="addPanel"><i class="bi bi-person-plus"></i> הוספת איש קשר</div>
       <div class="tab" data-panel="familiesPanel"><i class="bi bi-people"></i> משפחות</div>
       <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i> ייבוא רשימה</div>
       <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i> חיפוש</div>
       <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i> קטגוריות</div>
+      <div class="tab" data-panel="auditPanel"><i class="bi bi-journal-text"></i> יומן ביקורת</div>
       <div class="tab" data-panel="helpPanel"><i class="bi bi-question-circle"></i> עזרה</div>
     </div>
 
+    <!-- ===== בית / דשבורד ===== -->
+    <div id="homePanel" class="panel active">
+      <div id="dashboardCards" class="field-grid"></div>
+      <div class="card">
+        <h3><i class="bi bi-bar-chart"></i> ילדים לפי כיתה</h3>
+        <div id="classBreakdown"></div>
+      </div>
+    </div>
+
     <!-- ===== הוספה ידנית ===== -->
-    <div id="addPanel" class="panel active">
+    <div id="addPanel" class="panel">
       <div class="card">
         <h3><i class="bi bi-person-plus"></i> פרטי איש קשר</h3>
         <div class="field-grid">
@@ -97,6 +108,28 @@
         <button class="primary" onclick="createFamily()"><i class="bi bi-house-add"></i> צור כרטיס משפחה</button>
         <div id="famMsg"></div>
       </div>
+
+      <div class="card">
+        <h3><i class="bi bi-diagram-3"></i> קשר כללי בין שני אנשים</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">לא רק בעל/אישה — סבא/סבתא, אח/אחות, חתן/כלה וכל קשר אחר.</p>
+        <div class="field-grid">
+          <label>אדם א'<select id="rel_a"><option value="">בחר...</option></select></label>
+          <label>סוג הקשר
+            <select id="rel_type">
+              <option value="הורה-של">הורה של</option>
+              <option value="סבא/סבתא-של">סבא/סבתא של</option>
+              <option value="אח/אחות-של">אח/אחות של</option>
+              <option value="חתן/כלה-של">חתן/כלה של</option>
+              <option value="אחר">אחר (חופשי)</option>
+            </select>
+          </label>
+          <label>אדם ב'<select id="rel_b"><option value="">בחר...</option></select></label>
+        </div>
+        <button class="primary" onclick="addRelation()"><i class="bi bi-link-45deg"></i> הוסף קשר</button>
+        <div id="relMsg"></div>
+        <div id="relList" style="margin-top:14px"></div>
+      </div>
+
       <div id="familiesList"></div>
     </div>
 
@@ -149,6 +182,15 @@
         </div>
         <button class="primary" onclick="addNewCategory()"><i class="bi bi-plus-circle"></i> הוסף קטגוריה</button>
         <div id="catList" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- ===== יומן ביקורת ===== -->
+    <div id="auditPanel" class="panel">
+      <div class="card">
+        <h3><i class="bi bi-journal-text"></i> יומן ביקורת — מי עשה מה</h3>
+        <p style="color:var(--muted); font-size:.85rem">גלוי רק למשתמשי full. כל הוספה, מחיקה, ומיזוג נרשמים כאן אוטומטית.</p>
+        <div id="auditList" class="table-wrap"></div>
       </div>
     </div>
 

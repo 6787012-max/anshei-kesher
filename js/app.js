@@ -43,8 +43,77 @@ document.querySelectorAll('.tab').forEach(t => {
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById(t.dataset.panel).classList.add('active');
+    if (t.dataset.panel === 'homePanel') refreshDashboard();
+    if (t.dataset.panel === 'auditPanel') refreshAuditLog();
   };
 });
+
+/** ================= יומן ביקורת ================= */
+
+async function logAudit(action, entity, entityId, detail) {
+  try {
+    const session = AUTH.getSession();
+    await AUTH.api('audit_log', {
+      method: 'POST',
+      body: JSON.stringify({
+        actor: session.user.id, actor_email: session.user.email,
+        action, entity, entity_id: entityId || null, detail: detail || {}
+      })
+    });
+  } catch (e) { /* לא חוסמים את הפעולה עצמה אם הלוג נכשל */ }
+}
+
+async function refreshAuditLog() {
+  const el = document.getElementById('auditList');
+  let rows;
+  try {
+    rows = await AUTH.api('audit_log?select=*&order=created_at.desc&limit=100');
+  } catch (e) {
+    el.innerHTML = `<div class="msg err">${e.message}</div>`;
+    return;
+  }
+  if (!rows.length) { el.innerHTML = '<p style="color:var(--muted)">אין עדיין רשומות</p>'; return; }
+  let html = '<table><tr><th>מתי</th><th>מי</th><th>פעולה</th><th>סוג</th><th>פרטים</th><th></th></tr>';
+  rows.forEach(r => {
+    const when = new Date(r.created_at).toLocaleString('he-IL');
+    const undoBtn = r.action === 'merge'
+      ? `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="undoLastMerge('${r.entity_id}')"><i class="bi bi-arrow-counterclockwise"></i> בטל מיזוג</button>`
+      : '';
+    html += `<tr><td>${when}</td><td>${r.actor_email || ''}</td><td>${r.action}</td><td>${r.entity}</td>` +
+      `<td style="font-size:.78rem; color:var(--muted)">${JSON.stringify(r.detail || {})}</td><td>${undoBtn}</td></tr>`;
+  });
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+/** ================= דשבורד ================= */
+
+async function refreshDashboard() {
+  const stats = await AUTH.rpc('dashboard_stats', {});
+  const cardsEl = document.getElementById('dashboardCards');
+  const cards = [
+    { icon: 'bi-people-fill', label: 'סה"כ אנשי קשר', value: stats.total_people },
+    { icon: 'bi-house-heart', label: 'משפחות', value: stats.total_families },
+    { icon: 'bi-envelope', label: 'ללא מייל', value: stats.missing_email },
+    { icon: 'bi-telephone', label: 'ללא טלפון', value: stats.missing_phone },
+    { icon: 'bi-star', label: 'בר/בת מצווה ב-90 יום הקרובים', value: stats.upcoming_bar_mitzva_90d },
+  ];
+  cardsEl.innerHTML = cards.map(c =>
+    `<div class="card" style="text-align:center; padding:18px">
+      <i class="bi ${c.icon}" style="font-size:1.6rem; color:var(--primary)"></i>
+      <div style="font-size:1.8rem; font-weight:800; color:var(--primary-dark); margin-top:6px">${c.value}</div>
+      <div style="font-size:.8rem; color:var(--muted)">${c.label}</div>
+    </div>`
+  ).join('');
+
+  const classEl = document.getElementById('classBreakdown');
+  const byClass = stats.by_class || {};
+  classEl.innerHTML = Object.keys(byClass).map(k =>
+    `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line)">
+      <span>${k}</span><b>${byClass[k]}</b></div>`
+  ).join('') || '<p style="color:var(--muted)">אין נתונים</p>';
+}
+refreshDashboard();
 
 function val(id) { return document.getElementById(id).value; }
 function showMsg(elId, text, cls) {
@@ -75,6 +144,7 @@ async function submitPerson() {
     if (spouseId && newId) {
       await linkSpouses(newId, spouseId);
     }
+    logAudit('create', 'person', newId, { name: person.first_name + ' ' + person.last_name });
     showMsg('addMsg', 'נשמר בהצלחה' + (spouseId ? ' וקושר לבן/בת הזוג' : ''), 'ok');
     ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city',
      'f_school_class','f_phone','f_phone2','f_email','f_institution','f_aliases','f_notes']
@@ -111,7 +181,7 @@ async function linkSpouses(personId, spouseId) {
 
 async function loadPeopleIntoSelects() {
   const people = await AUTH.api('people?select=id,first_name,last_name,family_id&order=first_name') || [];
-  ['f_spouse', 'fam_head', 'fam_spouse'].forEach(selId => {
+  ['f_spouse', 'fam_head', 'fam_spouse', 'rel_a', 'rel_b'].forEach(selId => {
     const sel = document.getElementById(selId);
     if (!sel) return;
     const keep = sel.value;
@@ -160,7 +230,33 @@ function calcAge(birthDateStr) {
   return age;
 }
 
+async function addRelation() {
+  const a = val('rel_a'), b = val('rel_b'), type = val('rel_type');
+  if (!a || !b || a === b) { showMsg('relMsg', 'יש לבחור שני אנשים שונים', 'err'); return; }
+  try {
+    await AUTH.api('relations', { method: 'POST', body: JSON.stringify({ person_a: a, person_b: b, relation_type: type }) });
+    logAudit('create', 'relation', null, { a, b, type });
+    showMsg('relMsg', 'הקשר נוסף', 'ok');
+    refreshRelationsList();
+  } catch (e) {
+    showMsg('relMsg', 'שגיאה: ' + e.message, 'err');
+  }
+}
+
+async function refreshRelationsList() {
+  const el = document.getElementById('relList');
+  if (!el) return;
+  const rels = await AUTH.api('relations?select=*') || [];
+  if (!rels.length) { el.innerHTML = ''; return; }
+  const people = await AUTH.rpc('people_for_me', {}) || [];
+  const byId = Object.fromEntries(people.map(p => [p.id, `${p.first_name} ${p.last_name}`]));
+  el.innerHTML = '<div class="table-wrap"><table><tr><th>אדם א׳</th><th>קשר</th><th>אדם ב׳</th></tr>' +
+    rels.map(r => `<tr><td>${byId[r.person_a] || '?'}</td><td>${r.relation_type}</td><td>${byId[r.person_b] || '?'}</td></tr>`).join('') +
+    '</table></div>';
+}
+
 async function refreshFamiliesList() {
+  refreshRelationsList();
   const el = document.getElementById('familiesList');
   const families = await AUTH.api('families?select=*') || [];
   const allPeople = await AUTH.rpc('people_for_me', {}) || [];
@@ -301,6 +397,12 @@ async function submitImport() {
   renderReview();
 }
 
+const COMPARE_FIELDS = [
+  ['first_name', 'שם פרטי'], ['last_name', 'שם משפחה'], ['id_number', 'ת"ז'],
+  ['birth_date', 'תאריך לידה'], ['street', 'רחוב'], ['city', 'עיר'],
+  ['phone', 'טלפון'], ['email', 'מייל']
+];
+
 function renderReview() {
   const area = document.getElementById('reviewArea');
   area.innerHTML = '';
@@ -311,10 +413,21 @@ function renderReview() {
   pendingReview.forEach((item, idx) => {
     const box = document.createElement('div');
     box.className = 'review-box';
+    let fieldsHtml = '<div class="table-wrap"><table><tr><th>שדה</th><th>קיים</th><th>חדש</th></tr>';
+    COMPARE_FIELDS.forEach(([key, label]) => {
+      const existingVal = item.existingPerson[key] || '';
+      const newVal = item.newRow[key] || '';
+      if (!existingVal && !newVal) return;
+      fieldsHtml += `<tr><td>${label}</td>` +
+        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="existing" ${existingVal || !newVal ? 'checked' : ''}> ${existingVal || '(ריק)'}</label></td>` +
+        `<td><label style="font-weight:400"><input type="radio" name="cmp_${idx}_${key}" value="new" ${!existingVal && newVal ? 'checked' : ''}> ${newVal || '(ריק)'}</label></td></tr>`;
+    });
+    fieldsHtml += '</table></div>';
     box.innerHTML =
-      `<b>קיים:</b> ${item.existingPerson.first_name} ${item.existingPerson.last_name} (ת"ז: ${item.existingPerson.id_number || '-'})<br>` +
-      `<b>חדש:</b> ${item.newRow.first_name} ${item.newRow.last_name} (ת"ז: ${item.newRow.id_number || '-'})<br>` +
-      `<button class="btn" onclick="mergeDup(${idx})"><i class="bi bi-union"></i> מזג</button> ` +
+      `<b>קיים:</b> ${item.existingPerson.first_name} ${item.existingPerson.last_name} ` +
+      `&nbsp;↔&nbsp; <b>חדש:</b> ${item.newRow.first_name} ${item.newRow.last_name}` +
+      fieldsHtml +
+      `<button class="btn" onclick="mergeDup(${idx})"><i class="bi bi-union"></i> מזג לפי הבחירה</button> ` +
       `<button class="secondary" onclick="skipDup(${idx})"><i class="bi bi-file-earmark-plus"></i> השאר נפרד</button>`;
     card.appendChild(box);
   });
@@ -324,11 +437,32 @@ function renderReview() {
 async function mergeDup(idx) {
   const item = pendingReview[idx];
   const merged = {};
-  Object.keys(item.newRow).forEach(k => { if (!item.existingPerson[k] && item.newRow[k]) merged[k] = item.newRow[k]; });
+  COMPARE_FIELDS.forEach(([key]) => {
+    const chosen = document.querySelector(`input[name="cmp_${idx}_${key}"]:checked`);
+    if (chosen && chosen.value === 'new') merged[key] = item.newRow[key];
+  });
+  await AUTH.api('merge_log', { method: 'POST', body: JSON.stringify({
+    target_person: item.existingPerson.id, before_snapshot: item.existingPerson, merged_from: item.newRow
+  }) });
   await AUTH.api(`people?id=eq.${item.existingPerson.id}`, { method: 'PATCH', body: JSON.stringify(merged) });
+  logAudit('merge', 'person', item.existingPerson.id, { fields_changed: Object.keys(merged) });
   pendingReview.splice(idx, 1);
-  showMsg('importMsg', 'מוזג בהצלחה', 'ok');
+  showMsg('importMsg', 'מוזג בהצלחה. ניתן לבטל בטאב "יומן ביקורת".', 'ok');
+  globalSearchCache = null;
   renderReview();
+}
+
+async function undoLastMerge(personId) {
+  const logs = await AUTH.api(`merge_log?target_person=eq.${personId}&undone_at=is.null&order=created_at.desc&limit=1`);
+  if (!logs || !logs.length) { alert('אין מיזוג לבטל עבור אדם זה'); return; }
+  const log = logs[0];
+  const restore = Object.assign({}, log.before_snapshot);
+  delete restore.id; delete restore.created_at; delete restore.updated_at;
+  await AUTH.api(`people?id=eq.${personId}`, { method: 'PATCH', body: JSON.stringify(restore) });
+  await AUTH.api(`merge_log?id=eq.${log.id}`, { method: 'PATCH', body: JSON.stringify({ undone_at: new Date().toISOString() }) });
+  logAudit('undo_merge', 'person', personId, {});
+  globalSearchCache = null;
+  alert('המיזוג בוטל, הרשומה חזרה למצב הקודם');
 }
 
 async function skipDup(idx) {
@@ -336,7 +470,8 @@ async function skipDup(idx) {
   const row = Object.assign({}, item.newRow, { source: 'ייבוא (הושאר נפרד ידנית)' });
   row.id_number = row.id_number || null;
   row.birth_date = row.birth_date || null;
-  await AUTH.api('people', { method: 'POST', body: JSON.stringify(row) });
+  const created = await AUTH.api('people', { method: 'POST', body: JSON.stringify(row), headers: {'Prefer':'return=representation'} });
+  logAudit('create', 'person', created && created[0] && created[0].id, { via: 'dedup_skip' });
   pendingReview.splice(idx, 1);
   showMsg('importMsg', 'נשמר כרשומה נפרדת', 'ok');
   renderReview();
