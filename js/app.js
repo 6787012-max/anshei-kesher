@@ -190,9 +190,31 @@ async function initAccessLevel() {
       const tab = document.querySelector(`.tab[data-panel="${panelId}"]`);
       if (tab) tab.style.display = 'none';
     });
+    const box = document.getElementById('limitedRequestBox');
+    if (box) box.style.display = '';
   }
 }
 initAccessLevel();
+
+// לפי בקשת שעיה: משתמשי limited (בפרט "ספר טלפון קהילתי") לא רואים את
+// טאב "תכתובת פנימית" המלא, אבל יכולים לשלוח בקשה/תיקון בודדים — שעיה/יוסף
+// רואים ומחליטים אם לאשר, דרך אותה טבלת improvement_ideas (RLS: insert-על-עצמך).
+async function submitLimitedRequest() {
+  const title = val('lr_title').trim(), description = val('lr_desc').trim();
+  if (!title) { showMsg('lr_msg', 'יש לכתוב כותרת קצרה', 'err'); return; }
+  try {
+    const session = AUTH.getSession();
+    await AUTH.api('improvement_ideas', {
+      method: 'POST',
+      body: JSON.stringify({ title, description, source: 'manual', created_by: session.user.id, status: 'new' })
+    });
+    document.getElementById('lr_title').value = '';
+    document.getElementById('lr_desc').value = '';
+    showMsg('lr_msg', 'נשלח בהצלחה, תודה!', 'ok');
+  } catch (e) {
+    showMsg('lr_msg', 'שגיאה בשליחה: ' + esc(e.message), 'err');
+  }
+}
 if (window.RT) RT.start();
 
 /** ================= משתמשים והרשאות ================= */

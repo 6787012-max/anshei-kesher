@@ -61,6 +61,16 @@
     <div id="homePanel" class="panel active">
       <div id="dashboardCards" class="kpi-strip" style="margin:-18px -18px 18px; border-radius:0"></div>
       <div id="activityTicker" class="card" style="display:none; padding:10px 14px"></div>
+      <div id="limitedRequestBox" class="card" style="display:none">
+        <h3><i class="bi bi-send"></i> שליחת בקשה / תיקון</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">רואה טעות בפרט, או רוצה להוסיף תרומה/הערה? כתוב כאן — זה יגיע ישירות למי שמנהל את המערכת.</p>
+        <div class="field-grid">
+          <label>כותרת קצרה<input id="lr_title"></label>
+        </div>
+        <label style="margin-top:10px">פירוט<textarea id="lr_desc" rows="3" style="font-family:var(--font)"></textarea></label>
+        <button class="primary" onclick="submitLimitedRequest()"><i class="bi bi-send"></i> שלח</button>
+        <div id="lr_msg"></div>
+      </div>
       <div class="card">
         <h3><i class="bi bi-calendar-event"></i> אירועים קרובים (90 יום)</h3>
         <p style="color:var(--muted); font-size:.78rem; margin-bottom:8px">לפי תאריך לועזי בלבד — אין עדיין חישוב תאריך עברי.</p>
