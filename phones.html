@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ספר טלפונים — אנשי קשר</title>
+  <link href="vendor/heebo.css" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/bootstrap-icons.css">
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    body{background:var(--bg)}
+    .ph-top{background:var(--ink-900); color:#fff; padding:16px 18px; position:sticky; top:0; z-index:20}
+    .ph-top-row{display:flex; align-items:center; justify-content:space-between; gap:10px; max-width:640px; margin:0 auto}
+    .ph-top-row h1{font-size:1.05rem; font-weight:800}
+    .ph-search{max-width:640px; margin:12px auto 0; position:relative}
+    .ph-search input{width:100%; min-height:40px; padding-inline-start:14px; padding-inline-end:38px; border-radius:20px; border:none}
+    .ph-search i{position:absolute; inset-inline-end:14px; top:50%; transform:translateY(-50%); color:var(--muted)}
+    #ph-wrap{max-width:640px; margin:0 auto; padding:16px 14px 60px}
+    .ph-letter{font-size:.8rem; font-weight:800; color:var(--accent); margin:18px 4px 8px; letter-spacing:.05em}
+    .ph-card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px; margin-bottom:10px}
+    .ph-card h3{font-size:1rem; font-weight:800; color:var(--ink)}
+    .ph-card .ph-sub{font-size:.8rem; color:var(--muted); margin-bottom:6px}
+    .ph-row{display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-top:1px solid var(--line); font-size:.88rem}
+    .ph-row:first-of-type{border-top:none}
+    .ph-row .ph-who{color:var(--muted); font-size:.78rem}
+    .ph-row a{color:var(--primary); text-decoration:none; font-weight:700; display:inline-flex; align-items:center; gap:6px}
+    .ph-row a:hover{color:var(--primary-hover)}
+    .ph-fab{position:fixed; inset-inline-start:18px; bottom:18px; width:52px; height:52px; border-radius:50%; background:var(--primary);
+      color:#fff; border:none; font-size:1.4rem; box-shadow:var(--shadow-float); cursor:pointer; z-index:30}
+    .ph-modal-backdrop{display:none; position:fixed; inset:0; background:rgba(7,28,39,.5); z-index:50; align-items:center; justify-content:center; padding:16px}
+    .ph-modal-backdrop.open{display:flex}
+    .ph-modal{background:var(--surface-raised); border-radius:var(--r-lg); padding:20px; max-width:400px; width:100%; max-height:90vh; overflow-y:auto}
+    .ph-modal h2{font-size:1.05rem; font-weight:800; margin-bottom:14px}
+    .ph-modal label{display:block; font-size:.78rem; color:var(--muted); margin:10px 0 4px}
+    .ph-modal input{width:100%; min-height:38px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--r-md)}
+    .ph-modal-actions{display:flex; gap:8px; margin-top:16px}
+    #ph-empty{text-align:center; color:var(--muted); padding:40px 0}
+  </style>
+</head>
+<body>
+  <div class="ph-top">
+    <div class="ph-top-row">
+      <h1><i class="bi bi-telephone-fill" style="color:var(--sidebar-active-indicator)"></i> ספר טלפונים</h1>
+    </div>
+    <div class="ph-search">
+      <input id="ph_search" placeholder="חיפוש לפי שם משפחה או טלפון..." oninput="renderList()">
+      <i class="bi bi-search"></i>
+    </div>
+  </div>
+
+  <div id="ph-wrap">
+    <div id="ph-list"></div>
+    <div id="ph-empty" style="display:none">אין עדיין רשומות. לחצו על + כדי להוסיף.</div>
+  </div>
+
+  <button class="ph-fab" onclick="openAddModal()" title="הוסף איש קשר"><i class="bi bi-plus-lg"></i></button>
+
+  <div class="ph-modal-backdrop" id="ph_modal">
+    <div class="ph-modal">
+      <h2><i class="bi bi-person-plus"></i> הוספת איש קשר</h2>
+      <label>שם משפחה *<input id="pm_family" required></label>
+      <label>שם הבעל<input id="pm_husband_name"></label>
+      <label>שם האישה<input id="pm_wife_name"></label>
+      <label>טלפון בית<input id="pm_home_phone"></label>
+      <label>טלפון בעל<input id="pm_husband_phone"></label>
+      <label>טלפון אישה<input id="pm_wife_phone"></label>
+      <label>כתובת<input id="pm_address"></label>
+      <div id="pm_msg"></div>
+      <div class="ph-modal-actions">
+        <button class="primary" style="margin:0; flex:1" onclick="saveEntry()"><i class="bi bi-check2"></i> שמירה</button>
+        <button class="secondary" style="margin:0; flex:1" onclick="closeAddModal()"><i class="bi bi-x"></i> ביטול</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script>
+    function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    let ALL = [];
+
+    async function loadList() {
+      const res = await fetch(`${CFG.url}/rest/v1/public_phonebook?select=*&order=family_name.asc`, {
+        headers: { apikey: CFG.anon, 'Accept-Profile': CFG.schema }
+      });
+      ALL = res.ok ? await res.json() : [];
+      renderList();
+    }
+
+    function renderList() {
+      const q = (document.getElementById('ph_search').value || '').trim();
+      const listEl = document.getElementById('ph-list');
+      const emptyEl = document.getElementById('ph-empty');
+      let items = ALL;
+      if (q) {
+        items = ALL.filter(r =>
+          (r.family_name || '').includes(q) || (r.husband_name || '').includes(q) || (r.wife_name || '').includes(q) ||
+          (r.home_phone || '').includes(q) || (r.husband_phone || '').includes(q) || (r.wife_phone || '').includes(q)
+        );
+      }
+      if (!items.length) {
+        listEl.innerHTML = '';
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = ALL.length ? 'לא נמצאו תוצאות' : 'אין עדיין רשומות. לחצו על + כדי להוסיף.';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      let html = '';
+      let lastLetter = null;
+      items.forEach(r => {
+        const letter = (r.family_name || '?').trim()[0] || '?';
+        if (letter !== lastLetter) { html += `<div class="ph-letter">${esc(letter)}</div>`; lastLetter = letter; }
+        const names = [r.husband_name, r.wife_name].filter(Boolean).join(' ו');
+        html += `<div class="ph-card">
+          <h3>${esc(r.family_name)}</h3>
+          ${names ? `<div class="ph-sub">${esc(names)}</div>` : ''}
+          ${r.home_phone ? phoneRow(r.home_phone, 'בית') : ''}
+          ${r.husband_phone ? phoneRow(r.husband_phone, 'בעל') : ''}
+          ${r.wife_phone ? phoneRow(r.wife_phone, 'אישה') : ''}
+          ${r.address ? `<div class="ph-row"><span class="ph-who"><i class="bi bi-geo-alt"></i> ${esc(r.address)}</span></div>` : ''}
+        </div>`;
+      });
+      listEl.innerHTML = html;
+    }
+
+    function phoneRow(phone, who) {
+      return `<div class="ph-row"><span class="ph-who">${esc(who)}</span><a href="tel:${esc(phone.replace(/[^0-9+]/g,''))}"><i class="bi bi-telephone-fill"></i> ${esc(phone)}</a></div>`;
+    }
+
+    function openAddModal() { document.getElementById('ph_modal').classList.add('open'); }
+    function closeAddModal() {
+      document.getElementById('ph_modal').classList.remove('open');
+      ['pm_family','pm_husband_name','pm_wife_name','pm_home_phone','pm_husband_phone','pm_wife_phone','pm_address']
+        .forEach(id => document.getElementById(id).value = '');
+      document.getElementById('pm_msg').innerHTML = '';
+    }
+
+    async function saveEntry() {
+      const family_name = document.getElementById('pm_family').value.trim();
+      if (!family_name) {
+        document.getElementById('pm_msg').innerHTML = '<div class="msg err">שם משפחה הוא שדה חובה</div>';
+        return;
+      }
+      const body = {
+        family_name,
+        husband_name: document.getElementById('pm_husband_name').value.trim() || null,
+        wife_name: document.getElementById('pm_wife_name').value.trim() || null,
+        home_phone: document.getElementById('pm_home_phone').value.trim() || null,
+        husband_phone: document.getElementById('pm_husband_phone').value.trim() || null,
+        wife_phone: document.getElementById('pm_wife_phone').value.trim() || null,
+        address: document.getElementById('pm_address').value.trim() || null
+      };
+      try {
+        const res = await fetch(`${CFG.url}/rest/v1/public_phonebook`, {
+          method: 'POST',
+          headers: { apikey: CFG.anon, 'Content-Profile': CFG.schema, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error((await res.json()).message || 'שגיאת שמירה');
+        closeAddModal();
+        await loadList();
+      } catch (e) {
+        document.getElementById('pm_msg').innerHTML = `<div class="msg err">שגיאה: ${esc(e.message)}</div>`;
+      }
+    }
+
+    loadList();
+  </script>
+</body>
+</html>
