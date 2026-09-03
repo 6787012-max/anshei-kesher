@@ -39,8 +39,34 @@ async function runOcr() {
     progressEl.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>';
     showOcrExtraction(text);
   } catch (e) {
-    progressEl.innerHTML = `<div class="msg err">שגיאת זיהוי: ${e.message}</div>`;
+    progressEl.innerHTML =
+      `<div class="msg err">לא הצלחתי לזהות את הפרטים מהתמונה: ${esc(e.message)}</div>` +
+      `<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">` +
+      `  <button class="primary" style="margin:0" onclick="retryOcr()"><i class="bi bi-arrow-clockwise"></i> נסה שוב עם תמונה אחרת</button>` +
+      `  <button class="secondary" style="margin:0" onclick="skipOcrToManualForm()"><i class="bi bi-pencil"></i> הזן ידנית</button>` +
+      `  <button class="secondary" style="margin:0" onclick="cancelOcr()"><i class="bi bi-x-lg"></i> ביטול</button>` +
+      `</div>`;
   }
+}
+
+function retryOcr() {
+  document.getElementById('ocrFile').value = '';
+  document.getElementById('ocrProgress').innerHTML = '';
+  document.getElementById('ocrResult').innerHTML = '';
+  document.getElementById('ocrFile').click();
+}
+
+function skipOcrToManualForm() {
+  document.getElementById('ocrProgress').innerHTML = '';
+  document.getElementById('ocrResult').innerHTML = '';
+  document.getElementById('f_first_name').focus();
+  document.getElementById('f_first_name').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelOcr() {
+  document.getElementById('ocrFile').value = '';
+  document.getElementById('ocrProgress').innerHTML = '';
+  document.getElementById('ocrResult').innerHTML = '';
 }
 
 function extractFromOcrText(text) {
@@ -195,24 +221,54 @@ async function callAdminFn(payload) {
   return data;
 }
 
+async function loadUserCategoriesChecklist() {
+  const el = document.getElementById('u_categoriesChecklist');
+  if (!el) return;
+  try {
+    const cats = await AUTH.api('categories?select=name,group&order=name');
+    if (!cats || !cats.length) {
+      el.innerHTML = '<div style="color:var(--muted); font-size:.85rem">אין עדיין קטגוריות. הוסף בטאב "קטגוריות".</div>';
+      return;
+    }
+    el.innerHTML = cats.map(c => {
+      const label = c.group ? `${esc(c.name)} <span style="color:var(--muted); font-size:.75rem">(${esc(c.group)})</span>` : esc(c.name);
+      return `<label style="font-weight:400; display:flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface-raised)">` +
+             `<input type="checkbox" class="u_cat" value="${esc(c.name)}"> ${label}</label>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--danger); font-size:.85rem">שגיאה בטעינת קטגוריות: ${esc(e.message)}</div>`;
+  }
+}
+
+function toggleAllUserCategories(check) {
+  document.querySelectorAll('.u_cat').forEach(cb => { cb.checked = !!check; });
+}
+
 async function createUser() {
-  const email = val('u_email');
+  const email = val('u_email').trim();
   const password = val('u_password');
   const access_level = val('u_level');
+  if (!email) { showMsg('userMsg', 'יש להזין אימייל', 'err'); return; }
+  if (!password || password.length < 8) { showMsg('userMsg', 'סיסמה חייבת להיות באורך 8 תווים לפחות', 'err'); return; }
   const allowed_fields = Array.from(document.querySelectorAll('.u_field:checked')).map(el => el.value);
-  const allowed_categories = val('u_categories') ? val('u_categories').split(',').map(s => s.trim()).filter(Boolean) : [];
+  const allowed_categories = Array.from(document.querySelectorAll('.u_cat:checked')).map(el => el.value);
+  if (access_level === 'limited' && !allowed_categories.length) {
+    if (!confirm('לא סימנת אף קטגוריה — המשתמש לא יראה אף אחד. להמשיך בכל זאת?')) return;
+  }
   try {
     const result = await callAdminFn({ action: 'create_user', email, password, access_level, allowed_fields, allowed_categories });
     logAudit('create', 'user', result.user_id, { email, access_level });
     showMsg('userMsg', 'המשתמש נוצר בהצלחה. תעביר לו את הסיסמה הזמנית בערוץ מאובטח.', 'ok');
     document.getElementById('u_email').value = '';
     document.getElementById('u_password').value = '';
-    document.getElementById('u_categories').value = '';
+    toggleAllUserCategories(false);
     refreshUsersList();
   } catch (e) {
-    showMsg('userMsg', 'שגיאה: ' + e.message, 'err');
+    showMsg('userMsg', 'שגיאה ביצירת המשתמש: ' + e.message + '. אפשר לתקן את הפרטים ולנסות שוב, או לבטל וללכת לטאב אחר.', 'err');
   }
 }
+
+loadUserCategoriesChecklist();
 
 async function deleteUser(userId, email) {
   if (!confirm(`למחוק את המשתמש ${email}?`)) return;
@@ -285,6 +341,13 @@ const openIdeaThreads = new Set();
 function fmtDateTime(v) {
   const d = new Date(v);
   return isNaN(d.getTime()) ? '' : d.toLocaleString('he-IL');
+}
+
+// תאריך בלבד (בלי שעה), DD/MM/YYYY — שעיה ביקש "יום, אחר כך חודש, אחר כך שנה" ולא ISO (YYYY-MM-DD)
+function fmtDate(v) {
+  if (!v) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : v;
 }
 
 async function refreshIdeasList() {
@@ -876,6 +939,27 @@ function guessFieldForHeader(header) {
 
 let csvParsed = null;
 
+function copyCsvHeaders() {
+  const headers = 'שם פרטי,שם משפחה,טלפון,תעודת זהות,רחוב,שכונה,עיר';
+  navigator.clipboard.writeText(headers).then(() => {
+    const msg = document.getElementById('importMsg');
+    msg.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> שורת הכותרות הועתקה לזיכרון — הדבק ב-Excel/Sheets.</div>';
+    setTimeout(() => { if (msg.innerHTML.includes('שורת הכותרות')) msg.innerHTML = ''; }, 4000);
+  }).catch(() => {
+    alert('שורת הכותרות: ' + headers);
+  });
+}
+
+function cancelImport() {
+  csvParsed = null;
+  pendingReview = [];
+  document.getElementById('csvInput').value = '';
+  document.getElementById('importSource').value = '';
+  document.getElementById('mappingArea').innerHTML = '';
+  document.getElementById('reviewArea').innerHTML = '';
+  document.getElementById('importMsg').innerHTML = '<div class="msg ok">הייבוא בוטל. אפשר להתחיל מחדש בכל עת.</div>';
+}
+
 function startColumnMapping() {
   csvParsed = parseCsvRaw(val('csvInput'));
   if (!csvParsed.headers.length) return;
@@ -930,7 +1014,13 @@ async function runImport(rows, source) {
         p_id_number: row.id_number || null
       });
     } catch (e) {
-      showMsg('importMsg', 'שגיאה בבדיקת כפילויות: ' + e.message, 'err');
+      const msg = 'שגיאה בבדיקת כפילויות בשורה של "' + esc((row.first_name||'') + ' ' + (row.last_name||'')).trim() + '": ' + esc(e.message);
+      document.getElementById('importMsg').innerHTML =
+        `<div class="msg err">${msg}</div>` +
+        `<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">` +
+        `  <button class="secondary" style="margin:0" onclick="cancelImport()"><i class="bi bi-x-lg"></i> בטל את הייבוא</button>` +
+        `  <button class="secondary" style="margin:0" onclick="document.getElementById('mappingArea').scrollIntoView({behavior:'smooth'})"><i class="bi bi-arrow-up"></i> חזור לשינוי מיפוי</button>` +
+        `</div>`;
       return;
     }
 

@@ -62,18 +62,19 @@
       <div id="dashboardCards" class="kpi-strip" style="margin:-18px -18px 18px; border-radius:0"></div>
       <div id="activityTicker" class="card" style="display:none; padding:10px 14px"></div>
       <div class="card">
-        <h3><i class="bi bi-bar-chart"></i> אנשי קשר לפי כיתה</h3>
-        <div id="classBreakdown"></div>
-      </div>
-      <div class="card">
-        <h3><i class="bi bi-calendar3"></i> שנתונים — לפי שנת לידה</h3>
-        <div id="yearBreakdown"></div>
-      </div>
-      <div class="card">
         <h3><i class="bi bi-calendar-event"></i> אירועים קרובים (90 יום)</h3>
         <p style="color:var(--muted); font-size:.78rem; margin-bottom:8px">לפי תאריך לועזי בלבד — אין עדיין חישוב תאריך עברי.</p>
         <div id="upcomingEvents"></div>
       </div>
+      <details class="card" style="padding:0">
+        <summary style="cursor:pointer; padding:14px 16px; font-weight:600; list-style:none"><i class="bi bi-bar-chart"></i> עוד סטטיסטיקות (לחץ להצגה)</summary>
+        <div style="padding:0 16px 16px">
+          <h4 style="margin:6px 0 8px; font-size:.9rem"><i class="bi bi-mortarboard"></i> אנשי קשר לפי כיתה</h4>
+          <div id="classBreakdown"></div>
+          <h4 style="margin:16px 0 8px; font-size:.9rem"><i class="bi bi-calendar3"></i> שנתונים — לפי שנת לידה</h4>
+          <div id="yearBreakdown"></div>
+        </div>
+      </details>
     </div>
 
     <!-- ===== הוספה ידנית ===== -->
@@ -217,6 +218,14 @@
       <div class="card">
         <h3><i class="bi bi-upload"></i> ייבוא רשימה מ-CSV</h3>
         <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">שורה ראשונה = כותרות בכל שם שתרצה — במסך הבא תגיד לנו איזו עמודה היא מה.</p>
+        <details style="margin-bottom:10px; background:var(--surface); padding:10px 12px; border-radius:8px; border:1px solid var(--line)">
+          <summary style="cursor:pointer; font-weight:500; font-size:.85rem"><i class="bi bi-info-circle"></i> איך צריך להיראות הקובץ? (לחץ להצגת דוגמה)</summary>
+          <p style="margin:10px 0 6px; font-size:.82rem; color:var(--muted)">שורה ראשונה — כותרות (בעברית או אנגלית, אין רשימה קבועה — נזהה אוטומטית). כל שורה נוספת = איש קשר אחד. שדות מופרדים בפסיק. אין חובה על כל השדות — רק שם פרטי + שם משפחה.</p>
+          <pre style="background:var(--surface-raised); padding:8px; border-radius:6px; font-size:.75rem; overflow-x:auto; margin:0">שם פרטי,שם משפחה,טלפון,תעודת זהות,רחוב,שכונה,עיר
+יוסף,שניידר,050-1234567,123456789,הרימון 5,מרכז,מעלה עמוס
+שרה,כהן,,,הצבעוני 12,,מעלה עמוס</pre>
+          <button type="button" class="secondary" style="margin:8px 0 0; font-size:.78rem; padding:6px 12px" onclick="copyCsvHeaders()"><i class="bi bi-clipboard"></i> העתק שורת כותרות לזיכרון</button>
+        </details>
         <textarea id="csvInput" rows="8" placeholder="שם פרטי,שם משפחה,ת&quot;ז,תאריך לידה&#10;יוסף,שניידר,123456789,1990-01-01"></textarea>
         <label style="margin-top:14px">שם המקור<input id="importSource" placeholder='למשל: "רשימה משעיה 02.09"'></label>
         <button class="primary" onclick="startColumnMapping()"><i class="bi bi-diagram-3"></i> זהה עמודות</button>
@@ -258,9 +267,12 @@
     <div id="categoriesPanel" class="panel">
       <div class="card">
         <h3><i class="bi bi-tags"></i> ניהול קטגוריות</h3>
+        <p style="color:var(--muted); font-size:.82rem; margin:0 0 10px">
+          <b>שדה "קבוצה":</b> תת־קטגוריה אופציונלית. למשל אם הקטגוריה היא "ילדים", הקבוצה יכולה להיות "בן" או "בת". אפשר להשאיר ריק.
+        </p>
         <div class="field-grid">
           <label>שם קטגוריה חדשה<input id="newCatName"></label>
-          <label>קבוצה (אופציונלי)<input id="newCatGroup"></label>
+          <label>קבוצה (אופציונלי — למשל: בן, בת)<input id="newCatGroup"></label>
         </div>
         <button class="primary" onclick="addNewCategory()"><i class="bi bi-plus-circle"></i> הוסף קטגוריה</button>
         <div id="catList" style="margin-top:16px"></div>
@@ -340,7 +352,15 @@
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="aliases"> כינויים</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="notes"> הערות</label>
           </div>
-          <label style="margin-top:14px">קטגוריות מותרות (מופרד בפסיק, ריק=לא רואה אף אחד)<input id="u_categories"></label>
+          <label style="margin-top:14px">קטגוריות מותרות</label>
+          <p style="color:var(--muted); font-size:.78rem; margin:4px 0 8px">בחר אילו קבוצות אנשים המשתמש הזה יראה. לא תסמן — לא יראה אף אחד.</p>
+          <div id="u_categoriesChecklist" style="display:flex; flex-wrap:wrap; gap:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); max-height:200px; overflow-y:auto">
+            <div style="color:var(--muted); font-size:.85rem">טוען קטגוריות...</div>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:8px">
+            <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(true)"><i class="bi bi-check-all"></i> בחר הכל</button>
+            <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(false)"><i class="bi bi-x-square"></i> נקה הכל</button>
+          </div>
         </div>
         <button class="primary" onclick="createUser()"><i class="bi bi-person-plus"></i> צור משתמש</button>
         <div id="userMsg"></div>
@@ -354,9 +374,11 @@
     <!-- ===== יומן ביקורת ===== -->
     <div id="auditPanel" class="panel">
       <div class="card">
-        <h3><i class="bi bi-journal-text"></i> יומן ביקורת — מי עשה מה</h3>
-        <p style="color:var(--muted); font-size:.85rem">גלוי רק למשתמשי full. כל הוספה, מחיקה, ומיזוג נרשמים כאן אוטומטית.</p>
-        <div id="auditList" class="table-wrap"></div>
+        <h3><i class="bi bi-journal-text"></i> יומן ביקורת — מעקב אחר כל הפעולות במערכת</h3>
+        <p style="color:var(--muted); font-size:.85rem; margin-bottom:0">
+          כל הוספה, עריכה, מחיקה, ומיזוג — נרשמים כאן אוטומטית עם <b>מי, מה, ומתי</b>. משמש לביקורת ולשחזור טעויות (כפתור "בטל מיזוג" ליד כל שורת מיזוג). גלוי רק למשתמשי הרשאה מלאה.
+        </p>
+        <div id="auditList" class="table-wrap" style="margin-top:12px"></div>
       </div>
     </div>
 
