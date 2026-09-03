@@ -11,43 +11,56 @@
   <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
-  <div class="appbar">
-    <div class="brand">
-      <div class="logo"><i class="bi bi-people-fill"></i></div>
-      <div class="brand-txt"><strong>אנשי קשר</strong><small>מאגר קהילתי</small></div>
-    </div>
-    <div class="global-search-wrap">
-      <input id="globalSearch" placeholder="חיפוש מהיר: שם, ת&quot;ז, טלפון, כתובת..." oninput="runGlobalSearch()">
-      <i class="bi bi-search search-icon"></i>
-      <div id="globalSearchResults" style="display:none; position:absolute; top:110%; right:0; left:0; background:var(--card);
-        border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2); max-height:320px; overflow-y:auto; z-index:60"></div>
-    </div>
-    <button class="icon-btn" onclick="AUTH.logout()"><i class="bi bi-box-arrow-left"></i> התנתקות</button>
-  </div>
+  <div id="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="logo"><i class="bi bi-people-fill"></i></div>
+        <div class="sidebar-brand"><strong>אנשי קשר</strong><small>מאגר קהילתי</small></div>
+      </div>
+      <button class="sidebar-cta" onclick="document.querySelector('.tab[data-panel=addPanel]').click()">
+        <i class="bi bi-person-plus"></i><span>איש קשר חדש</span>
+      </button>
+      <nav class="sidebar-nav">
+        <div class="tab active" data-panel="homePanel"><i class="bi bi-house-door"></i><span>בית</span></div>
+        <div class="tab" data-panel="addPanel"><i class="bi bi-person-plus"></i><span>הוספת איש קשר</span></div>
+        <div class="tab" data-panel="familiesPanel"><i class="bi bi-people"></i><span>משפחות</span></div>
+        <div class="tab" data-panel="listPanel"><i class="bi bi-table"></i><span>רשימה מלאה</span></div>
+        <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i><span>ייבוא רשימה</span></div>
+        <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i><span>חיפוש</span></div>
+        <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i><span>קטגוריות</span></div>
+        <div class="tab" data-panel="ideasPanel"><i class="bi bi-chat-left-text"></i><span>תכתובת פנימית</span></div>
+        <div class="tab" data-panel="usersPanel"><i class="bi bi-shield-lock"></i><span>משתמשים</span></div>
+        <div class="tab" data-panel="auditPanel"><i class="bi bi-journal-text"></i><span>יומן ביקורת</span></div>
+        <div class="tab" data-panel="helpPanel"><i class="bi bi-question-circle"></i><span>עזרה</span></div>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('collapsed')" title="כווץ/הרחב">
+          <i class="bi bi-layout-sidebar-inset"></i>
+        </button>
+      </div>
+    </aside>
+
+    <div id="appwrap">
+      <div class="topbar">
+        <div class="topbar-title" id="topbarTitle">בית</div>
+        <div class="topbar-end">
+          <div id="presenceBar" style="font-size:11px; color:var(--muted); white-space:nowrap; display:flex; align-items:center; gap:6px"></div>
+          <div class="global-search-wrap">
+            <input id="globalSearch" placeholder="חיפוש: שם, ת&quot;ז, טלפון..." oninput="runGlobalSearch()">
+            <i class="bi bi-search search-icon"></i>
+            <div id="globalSearchResults" style="display:none; position:absolute; top:120%; right:0; left:0; background:var(--surface-raised);
+              border-radius:var(--r-md); box-shadow:var(--shadow-float); max-height:320px; overflow-y:auto; z-index:60; border:1px solid var(--line)"></div>
+          </div>
+          <button class="icon-btn text" onclick="AUTH.logout()"><i class="bi bi-box-arrow-left"></i> התנתקות</button>
+        </div>
+      </div>
 
   <div id="main">
-    <div class="hero">
-      <h1>ניהול אנשי קשר</h1>
-      <p>הוספה, ייבוא, חיפוש, וקטגוריות — עם דדופליקציה חכמה שלא בוחרת בשבילך.</p>
-    </div>
-
-    <div class="tabs">
-      <div class="tab active" data-panel="homePanel"><i class="bi bi-house-door"></i> בית</div>
-      <div class="tab" data-panel="addPanel"><i class="bi bi-person-plus"></i> הוספת איש קשר</div>
-      <div class="tab" data-panel="familiesPanel"><i class="bi bi-people"></i> משפחות</div>
-      <div class="tab" data-panel="listPanel"><i class="bi bi-table"></i> רשימה מלאה</div>
-      <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i> ייבוא רשימה</div>
-      <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i> חיפוש</div>
-      <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i> קטגוריות</div>
-      <div class="tab" data-panel="ideasPanel"><i class="bi bi-chat-left-text"></i> תכתובת פנימית</div>
-      <div class="tab" data-panel="usersPanel"><i class="bi bi-shield-lock"></i> משתמשים</div>
-      <div class="tab" data-panel="auditPanel"><i class="bi bi-journal-text"></i> יומן ביקורת</div>
-      <div class="tab" data-panel="helpPanel"><i class="bi bi-question-circle"></i> עזרה</div>
-    </div>
 
     <!-- ===== בית / דשבורד ===== -->
     <div id="homePanel" class="panel active">
-      <div id="dashboardCards" class="field-grid"></div>
+      <div id="dashboardCards" class="kpi-strip" style="margin:-18px -18px 18px; border-radius:0"></div>
+      <div id="activityTicker" class="card" style="display:none; padding:10px 14px"></div>
       <div class="card">
         <h3><i class="bi bi-bar-chart"></i> אנשי קשר לפי כיתה</h3>
         <div id="classBreakdown"></div>
@@ -404,10 +417,14 @@
       </div>
     </div>
   </div>
+    </div>
+  </div>
 
   <script src="vendor/tesseract/tesseract.min.js"></script>
+  <script src="vendor/supabase/supabase.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/auth.js"></script>
+  <script src="js/realtime.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

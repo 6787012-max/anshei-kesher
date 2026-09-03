@@ -139,6 +139,8 @@ document.querySelectorAll('.tab').forEach(t => {
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById(t.dataset.panel).classList.add('active');
+    const titleEl = document.getElementById('topbarTitle');
+    if (titleEl) titleEl.textContent = t.querySelector('span')?.textContent || t.textContent.trim();
     if (t.dataset.panel === 'homePanel') refreshDashboard();
     if (t.dataset.panel === 'auditPanel') refreshAuditLog();
     if (t.dataset.panel === 'usersPanel') refreshUsersList();
@@ -165,6 +167,7 @@ async function initAccessLevel() {
   }
 }
 initAccessLevel();
+if (window.RT) RT.start();
 
 /** ================= משתמשים והרשאות ================= */
 
@@ -487,11 +490,7 @@ async function refreshDashboard() {
     { icon: 'bi-star', label: 'בר/בת מצווה ב-90 יום הקרובים', value: stats.upcoming_bar_mitzva_90d },
   ];
   cardsEl.innerHTML = cards.map(c =>
-    `<div class="card" style="text-align:center; padding:18px">
-      <i class="bi ${c.icon}" style="font-size:1.6rem; color:var(--primary)"></i>
-      <div style="font-size:1.8rem; font-weight:800; color:var(--primary-dark); margin-top:6px">${c.value}</div>
-      <div style="font-size:.8rem; color:var(--muted)">${c.label}</div>
-    </div>`
+    `<div class="kpi-item"><b>${c.value}</b><span>${c.label}</span></div>`
   ).join('');
 
   const FALLBACK_LABELS = { lelo_kita: 'ללא כיתה', lo_yadua: 'לא ידוע', lo_tzuyan: 'לא צוין' };
