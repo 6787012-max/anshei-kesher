@@ -598,22 +598,55 @@ function showMsg(elId, text, cls) {
 
 /** ================= הוספה ידנית ================= */
 
+function toggleRecordKind() {
+  const isOrg = (document.querySelector('input[name="f_record_kind"]:checked') || {}).value === 'organization';
+  // בארגון עדיין צריך את שם השדה (name) עצמו — רק מסתירים שדות אישיים אחרים
+  // ומשנים תווית כדי ש-first_name ישמש כשם הארגון.
+  document.querySelectorAll('#f_personal_fields .field-grid > label:not(#f_first_name_label):not(#f_last_name_label), #f_personal_fields .field-group-title')
+    .forEach(el => { el.style.display = isOrg ? 'none' : ''; });
+  document.getElementById('f_last_name_label').style.display = isOrg ? 'none' : '';
+  document.getElementById('f_first_name_label').firstChild.textContent = isOrg ? 'שם הארגון/גמ"ח/בעל המקצוע *' : 'שם פרטי *';
+  document.getElementById('f_family_fields').style.display = isOrg ? 'none' : '';
+  document.getElementById('f_record_kind_hint').style.display = isOrg ? '' : 'none';
+  document.getElementById('f_school_class_label').style.display = isOrg ? 'none' : '';
+}
+
+function clearAddPersonForm() {
+  ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street',
+   'f_neighborhood','f_city','f_school_class','f_phone','f_phone2','f_email','f_institution',
+   'f_marriage_date','f_aliases','f_notes']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('f_role').value = '';
+  document.getElementById('f_gender').value = '';
+  document.getElementById('f_housing').value = '';
+  document.getElementById('f_marital_status').value = '';
+  document.getElementById('f_spouse').value = '';
+  document.querySelector('input[name="f_record_kind"][value="person"]').checked = true;
+  toggleRecordKind();
+  document.getElementById('ocrProgress').innerHTML = '';
+  document.getElementById('ocrResult').innerHTML = '';
+  document.getElementById('addMsg').innerHTML = '';
+}
+
 async function submitPerson() {
-  if (!val('f_first_name').trim() || !val('f_last_name').trim()) {
-    showMsg('addMsg', 'שם פרטי ושם משפחה הם שדות חובה', 'err');
+  const recordKindNow = (document.querySelector('input[name="f_record_kind"]:checked') || {}).value || 'person';
+  if (!val('f_first_name').trim() || (recordKindNow === 'person' && !val('f_last_name').trim())) {
+    showMsg('addMsg', recordKindNow === 'organization' ? 'שם הארגון/גמ"ח הוא שדה חובה' : 'שם פרטי ושם משפחה הם שדות חובה', 'err');
     return;
   }
   const spouseId = val('f_spouse') || null;
+  const recordKind = (document.querySelector('input[name="f_record_kind"]:checked') || {}).value || 'person';
   const person = {
     first_name: val('f_first_name').trim(), last_name: val('f_last_name').trim(),
     id_number: val('f_id_number') || null, birth_date: val('f_birth_date') || null,
     bar_mitzva_date: val('f_bar_mitzva_date') || null,
     edah: val('f_edah'), gender: val('f_gender') || null,
-    street: val('f_street'), city: val('f_city'), school_class: val('f_school_class'),
+    street: val('f_street'), neighborhood: val('f_neighborhood'), city: val('f_city'),
+    school_class: val('f_school_class'),
     phone: val('f_phone'), phone2: val('f_phone2'), email: val('f_email'),
     role_in_family: val('f_role'), institution: val('f_institution'),
     marriage_date: val('f_marriage_date') || null, marital_status: val('f_marital_status'),
-    housing_status: val('f_housing'),
+    housing_status: val('f_housing'), record_kind: recordKind,
     aliases: val('f_aliases') ? val('f_aliases').split(',').map(s => s.trim()).filter(Boolean) : [],
     notes: val('f_notes'), source: 'manual'
   };
@@ -655,14 +688,8 @@ async function submitPerson() {
       await linkSpouses(newId, spouseId);
     }
     logAudit('create', 'person', newId, { name: person.first_name + ' ' + person.last_name });
+    clearAddPersonForm();
     showMsg('addMsg', 'נשמר בהצלחה' + (spouseId ? ' וקושר לבן/בת הזוג' : ''), 'ok');
-    ['f_first_name','f_last_name','f_id_number','f_birth_date','f_bar_mitzva_date','f_edah','f_street','f_city',
-     'f_school_class','f_phone','f_phone2','f_email','f_institution','f_marriage_date','f_aliases','f_notes']
-      .forEach(id => document.getElementById(id).value = '');
-    document.getElementById('f_role').value = '';
-    document.getElementById('f_housing').value = '';
-    document.getElementById('f_marital_status').value = '';
-    document.getElementById('f_spouse').value = '';
     loadPeopleIntoSelects();
     globalSearchCache = null;
   } catch (e) {

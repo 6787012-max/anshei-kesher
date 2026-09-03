@@ -91,18 +91,33 @@
       <div class="card">
         <h3><i class="bi bi-person-plus"></i> פרטי איש קשר</h3>
 
-        <div class="field-group-title">פרטים אישיים <span style="color:var(--danger); font-weight:400">(שם פרטי ושם משפחה — חובה)</span></div>
-        <div class="field-grid">
-          <label>שם פרטי *<input id="f_first_name" required></label>
-          <label>שם משפחה *<input id="f_last_name" required></label>
-          <label>תעודת זהות<input id="f_id_number"></label>
-          <label>תאריך לידה<input id="f_birth_date" type="date"></label>
-          <label>בר/בת מצווה<input id="f_bar_mitzva_date" type="date"></label>
-          <label>עדה<input id="f_edah" placeholder="אשכנזי / ספרדי / חסיד"></label>
-          <label>מגדר
-            <select id="f_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select>
+        <div class="field-group-title">סוג רשומה</div>
+        <div style="display:flex; gap:16px; margin-bottom:4px">
+          <label style="font-weight:400; display:flex; align-items:center; gap:6px">
+            <input type="radio" name="f_record_kind" value="person" checked onchange="toggleRecordKind()"> אדם פרטי / בן משפחה
           </label>
-          <label>כינויים נוספים (מופרדים בפסיק — לדוגמה: יוסי, יוסף חיים)<input id="f_aliases"></label>
+          <label style="font-weight:400; display:flex; align-items:center; gap:6px">
+            <input type="radio" name="f_record_kind" value="organization" onchange="toggleRecordKind()"> ארגון / גמ"ח / בעל מקצוע
+          </label>
+        </div>
+        <p id="f_record_kind_hint" style="color:var(--muted); font-size:.78rem; margin-bottom:4px; display:none">
+          לרשומת ארגון צריך רק שם (בשדה "שם פרטי") וטלפון/כתובת — שדות אישיים כמו ת"ז/תאריך לידה/מגדר לא רלוונטיים ומוסתרים.
+        </p>
+
+        <div id="f_personal_fields">
+          <div class="field-group-title">פרטים אישיים <span style="color:var(--danger); font-weight:400">(שם פרטי ושם משפחה — חובה)</span></div>
+          <div class="field-grid">
+            <label id="f_first_name_label">שם פרטי *<input id="f_first_name" required></label>
+            <label id="f_last_name_label">שם משפחה *<input id="f_last_name" required></label>
+            <label>תעודת זהות<input id="f_id_number"></label>
+            <label>תאריך לידה<input id="f_birth_date" type="date"></label>
+            <label>בר/בת מצווה<input id="f_bar_mitzva_date" type="date"></label>
+            <label>עדה<input id="f_edah" placeholder="אשכנזי / ספרדי / חסיד"></label>
+            <label>מגדר
+              <select id="f_gender"><option value="">--</option><option value="male">זכר</option><option value="female">נקבה</option></select>
+            </label>
+            <label>כינויים נוספים (מופרדים בפסיק — לדוגמה: יוסי, יוסף חיים)<input id="f_aliases"></label>
+          </div>
         </div>
 
         <div class="field-group-title">יצירת קשר</div>
@@ -115,30 +130,34 @@
         <div class="field-group-title">כתובת ולימודים</div>
         <div class="field-grid">
           <label>רחוב<input id="f_street"></label>
+          <label>שכונה<input id="f_neighborhood"></label>
           <label>עיר<input id="f_city"></label>
-          <label>כיתה / בית ספר<input id="f_school_class" placeholder="למשל: כיתה ג' - בית ספר X"></label>
+          <label id="f_school_class_label">כיתה / בית ספר<input id="f_school_class" placeholder="למשל: כיתה ג' - בית ספר X"></label>
           <label>מוסד לימודים / כולל<input id="f_institution"></label>
           <label>סטטוס דיור
             <select id="f_housing"><option value="">--</option><option value="גר">גר</option><option value="קנה ולא גר">קנה ולא גר</option><option value="שוכר">שוכר</option><option value="עוזב">עוזב</option></select>
           </label>
         </div>
 
-        <div class="field-group-title">משפחה</div>
-        <div class="field-grid">
-          <label>תפקיד במשפחה
-            <select id="f_role"><option value="">--</option><option value="אב">אב</option><option value="אם">אם</option><option value="ילד">ילד</option><option value="אחר">אחר</option></select>
-          </label>
-          <label>סטטוס אישי
-            <select id="f_marital_status"><option value="">--</option><option value="רווק/ה">רווק/ה</option><option value="נשוי/אה">נשוי/אה</option><option value="גרוש/ה">גרוש/ה</option><option value="אלמן/ה">אלמן/ה</option></select>
-          </label>
-          <label>תאריך נישואין<input id="f_marriage_date" type="date"></label>
-          <label>בן/בת זוג (אופציונלי — מקשר לכרטיס משפחה)
-            <select id="f_spouse"><option value="">--</option></select>
-          </label>
+        <div id="f_family_fields">
+          <div class="field-group-title">משפחה</div>
+          <div class="field-grid">
+            <label>תפקיד במשפחה
+              <select id="f_role"><option value="">--</option><option value="אב">אב</option><option value="אם">אם</option><option value="ילד">ילד</option><option value="אחר">אחר</option></select>
+            </label>
+            <label>סטטוס אישי
+              <select id="f_marital_status"><option value="">--</option><option value="רווק/ה">רווק/ה</option><option value="נשוי/אה">נשוי/אה</option><option value="גרוש/ה">גרוש/ה</option><option value="אלמן/ה">אלמן/ה</option></select>
+            </label>
+            <label>תאריך נישואין<input id="f_marriage_date" type="date"></label>
+            <label>בן/בת זוג (אופציונלי — מקשר לכרטיס משפחה)
+              <select id="f_spouse"><option value="">--</option></select>
+            </label>
+          </div>
         </div>
 
         <label style="margin-top:14px">הערות<textarea id="f_notes" rows="2" style="font-family:var(--font)"></textarea></label>
         <button class="primary" onclick="submitPerson()"><i class="bi bi-check2"></i> שמור</button>
+        <button class="secondary" onclick="clearAddPersonForm()"><i class="bi bi-x-lg"></i> נקה טופס</button>
         <div id="addMsg"></div>
       </div>
     </div>
