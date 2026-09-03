@@ -235,7 +235,10 @@ async function refreshUsersList() {
     ).join('') + '</table>';
 }
 
-/** ================= רעיונות ושיפורים ================= */
+/** ================= תכתובת פנימית — בעיות ובקשות ================= */
+// לפי בקשת שעיה (מייל 02.09.2026): מקום בתוך התוכנה עצמה לרשום בעיות,
+// לנהל עליהן תכתובת פנימית, ולסמן האם טופל. יושב על improvement_ideas
+// הקיימת + טבלת idea_messages (ראה supabase/migration_internal_thread.sql).
 
 document.addEventListener('change', e => {
   if (e.target && e.target.id === 'idea_source') {
@@ -246,9 +249,12 @@ document.addEventListener('change', e => {
 async function addIdea() {
   const title = val('idea_title').trim();
   if (!title) { showMsg('ideaMsg', 'יש להזין כותרת', 'err'); return; }
+  const session = AUTH.getSession();
   const idea = {
     title, description: val('idea_desc'),
-    source: val('idea_source'), source_email: val('idea_source') === 'email' ? val('idea_email') : ''
+    source: val('idea_source'), source_email: val('idea_source') === 'email' ? val('idea_email') : '',
+    created_by: session && session.user ? session.user.id : null,
+    created_by_email: session && session.user ? session.user.email : ''
   };
   try {
     const created = await AUTH.api('improvement_ideas', { method: 'POST', body: JSON.stringify(idea), headers: { 'Prefer': 'return=representation' } });
@@ -266,27 +272,91 @@ async function addIdea() {
 let currentIdeaFilter = 'all';
 function filterIdeas(status) { currentIdeaFilter = status; refreshIdeasList(); }
 
-const IDEA_STATUS_LABELS = { new: 'חדש', in_progress: 'בטיפול', done: 'בוצע', rejected: 'נדחה' };
+const IDEA_STATUS_LABELS = { new: 'לא טופל', in_progress: 'בטיפול', done: 'טופל', rejected: 'נדחה' };
+const IDEA_STATUS_COLORS = { new: '#b45309', in_progress: '#1d4ed8', done: '#15803d', rejected: '#6b7280' };
+
+// אילו תכתובות פתוחות כרגע — נשמר בין רענונים, אחרת כל שליחת הודעה סוגרת
+// את השרשור שבדיוק כתבת בו.
+const openIdeaThreads = new Set();
+
+function fmtDateTime(v) {
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('he-IL');
+}
 
 async function refreshIdeasList() {
   const el = document.getElementById('ideasList');
   if (!el) return;
   const rows = await AUTH.api('improvement_ideas?select=*&order=created_at.desc') || [];
+  let msgs = [];
+  try { msgs = await AUTH.api('idea_messages?select=*&order=created_at.asc') || []; }
+  catch (e) { msgs = []; }   // אם המיגרציה עוד לא רצה — הרשימה עצמה עדיין תעבוד
+  const byIdea = {};
+  msgs.forEach(m => { (byIdea[m.idea_id] = byIdea[m.idea_id] || []).push(m); });
+
   const filtered = currentIdeaFilter === 'all' ? rows : rows.filter(r => r.status === currentIdeaFilter);
-  if (!filtered.length) { el.innerHTML = '<p style="color:var(--muted)">אין רעיונות בסטטוס הזה</p>'; return; }
+  if (!filtered.length) {
+    el.innerHTML = '<p style="color:var(--muted)">אין פניות בסטטוס הזה</p>';
+    return;
+  }
   el.innerHTML = '';
   filtered.forEach(r => {
+    const thread = byIdea[r.id] || [];
     const card = document.createElement('div');
     card.className = 'review-box';
+    const badge = `<span style="background:${IDEA_STATUS_COLORS[r.status] || '#6b7280'}; color:#fff; border-radius:999px; padding:2px 10px; font-size:.72rem; font-weight:700; white-space:nowrap">${esc(IDEA_STATUS_LABELS[r.status] || r.status)}</span>`;
     card.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
-        <div>
-          <b>${esc(r.title)}</b>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap">
+        <div style="flex:1; min-width:200px">
+          <b>${esc(r.title)}</b> ${badge}
           ${r.source === 'email' ? ` <span style="font-size:.75rem; color:var(--muted)">(במייל${r.source_email ? ' מ-' + esc(r.source_email) : ''})</span>` : ''}
-          <p style="margin-top:6px; font-size:.85rem">${esc(r.description)}</p>
-          <p style="font-size:.72rem; color:var(--muted); margin-top:6px">${esc(new Date(r.created_at).toLocaleDateString('he-IL'))}</p>
+          ${r.description ? `<p style="margin-top:6px; font-size:.85rem; white-space:pre-wrap">${esc(r.description)}</p>` : ''}
+          <p style="font-size:.72rem; color:var(--muted); margin-top:6px">${esc(fmtDateTime(r.created_at))}${r.created_by_email ? ' · נפתח ע"י ' + esc(r.created_by_email) : ''}</p>
         </div>
       </div>`;
+
+    /* ---- תכתובת ---- */
+    const threadWrap = document.createElement('div');
+    threadWrap.style = 'margin-top:10px';
+    const toggle = document.createElement('button');
+    toggle.className = 'secondary';
+    toggle.style = 'margin:0; font-size:.78rem; padding:5px 12px';
+    const isOpen = openIdeaThreads.has(r.id);
+    toggle.innerHTML = `<i class="bi bi-chat-left-text"></i> תכתובת (${thread.length})`;
+    const body = document.createElement('div');
+    body.style = `margin-top:10px; display:${isOpen ? 'block' : 'none'}`;
+    toggle.onclick = () => {
+      const nowOpen = body.style.display === 'none';
+      body.style.display = nowOpen ? 'block' : 'none';
+      if (nowOpen) openIdeaThreads.add(r.id); else openIdeaThreads.delete(r.id);
+    };
+
+    const list = document.createElement('div');
+    if (!thread.length) {
+      list.innerHTML = '<p style="color:var(--muted); font-size:.8rem">אין עדיין הודעות בפנייה הזו.</p>';
+    } else {
+      list.innerHTML = thread.map(m =>
+        `<div style="border-right:3px solid var(--primary, #8b5e34); background:#fafafa; border-radius:6px; padding:8px 10px; margin-bottom:8px">
+           <div style="font-size:.72rem; color:var(--muted)">${esc(m.author_email || 'לא ידוע')} · ${esc(fmtDateTime(m.created_at))}</div>
+           <div style="font-size:.85rem; white-space:pre-wrap; margin-top:4px">${esc(m.body)}</div>
+         </div>`).join('');
+    }
+
+    const ta = document.createElement('textarea');
+    ta.rows = 2;
+    ta.placeholder = 'כתוב הודעה בפנייה הזו…';
+    ta.style = 'width:100%; font-family:var(--font)';
+    const send = document.createElement('button');
+    send.className = 'primary';
+    send.style = 'margin-top:6px; font-size:.8rem; padding:6px 16px';
+    send.innerHTML = '<i class="bi bi-send"></i> שלח';
+    send.onclick = () => addIdeaMessage(r.id, ta, send);
+
+    body.appendChild(list); body.appendChild(ta); body.appendChild(send);
+    threadWrap.appendChild(toggle); threadWrap.appendChild(body);
+    card.appendChild(threadWrap);
+
+    /* ---- סטטוס ומחיקה ---- */
     const controls = document.createElement('div');
     controls.style = 'margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap';
     const select = document.createElement('select');
@@ -297,27 +367,63 @@ async function refreshIdeasList() {
       select.appendChild(opt);
     });
     select.onchange = () => updateIdeaStatus(r.id, select.value);
+    controls.appendChild(select);
+    if (r.status !== 'done') {
+      const quick = document.createElement('button');
+      quick.className = 'secondary';
+      quick.style = 'margin:0; font-size:.75rem; padding:4px 12px';
+      quick.innerHTML = '<i class="bi bi-check2-circle"></i> סמן כטופל';
+      quick.onclick = () => updateIdeaStatus(r.id, 'done');
+      controls.appendChild(quick);
+    }
     const del = document.createElement('button');
     del.className = 'secondary'; del.style = 'margin:0; font-size:.75rem; padding:4px 10px';
     del.innerHTML = '<i class="bi bi-trash"></i>';
     del.onclick = () => deleteIdeaConfirm(r.id);
-    controls.appendChild(select); controls.appendChild(del);
+    controls.appendChild(del);
     card.appendChild(controls);
     el.appendChild(card);
   });
 }
 
+async function addIdeaMessage(ideaId, ta, btn) {
+  const text = (ta.value || '').trim();
+  if (!text) { ta.focus(); return; }
+  const session = AUTH.getSession();
+  btn.disabled = true;
+  try {
+    await AUTH.api('idea_messages', {
+      method: 'POST',
+      body: JSON.stringify({
+        idea_id: ideaId, body: text,
+        author: session && session.user ? session.user.id : null,
+        author_email: session && session.user ? session.user.email : ''
+      })
+    });
+    ta.value = '';
+    openIdeaThreads.add(ideaId);   // שהשרשור יישאר פתוח אחרי הרענון
+    logAudit('create', 'idea_message', ideaId, {});
+    await refreshIdeasList();
+  } catch (e) {
+    alert('שגיאה בשליחת ההודעה: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function updateIdeaStatus(id, status) {
   const patch = { status };
-  if (status === 'done' || status === 'rejected') patch.resolved_at = new Date().toISOString();
+  patch.resolved_at = (status === 'done' || status === 'rejected') ? new Date().toISOString() : null;
   await AUTH.api(`improvement_ideas?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   logAudit('update', 'improvement_idea', id, { status });
   refreshIdeasList();
 }
 
 async function deleteIdeaConfirm(id) {
-  if (!confirm('למחוק את הרעיון הזה?')) return;
+  if (!confirm('למחוק את הפנייה הזו? כל התכתובת עליה תימחק גם היא.')) return;
   await AUTH.api(`improvement_ideas?id=eq.${id}`, { method: 'DELETE' });
+  openIdeaThreads.delete(id);
+  logAudit('delete', 'improvement_idea', id, {});
   refreshIdeasList();
 }
 

@@ -39,7 +39,7 @@
       <div class="tab" data-panel="importPanel"><i class="bi bi-upload"></i> ייבוא רשימה</div>
       <div class="tab" data-panel="searchPanel"><i class="bi bi-search"></i> חיפוש</div>
       <div class="tab" data-panel="categoriesPanel"><i class="bi bi-tags"></i> קטגוריות</div>
-      <div class="tab" data-panel="ideasPanel"><i class="bi bi-lightbulb"></i> רעיונות ושיפורים</div>
+      <div class="tab" data-panel="ideasPanel"><i class="bi bi-chat-left-text"></i> תכתובת פנימית</div>
       <div class="tab" data-panel="usersPanel"><i class="bi bi-shield-lock"></i> משתמשים</div>
       <div class="tab" data-panel="auditPanel"><i class="bi bi-journal-text"></i> יומן ביקורת</div>
       <div class="tab" data-panel="helpPanel"><i class="bi bi-question-circle"></i> עזרה</div>
@@ -254,31 +254,31 @@
       </div>
     </div>
 
-    <!-- ===== רעיונות ושיפורים ===== -->
+    <!-- ===== תכתובת פנימית ===== -->
     <div id="ideasPanel" class="panel">
       <div class="card">
-        <h3><i class="bi bi-lightbulb"></i> רעיון / בקשה חדשה</h3>
+        <h3><i class="bi bi-plus-circle"></i> פנייה חדשה — בעיה / בקשה</h3>
         <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">
-          כל בקשה שמגיעה במייל משעיה זיידל או נעמה בנוגע לגמ"ח או לאנשי קשר נכנסת לכאן אוטומטית לפני שמתחילים לטפל בה — כדי שיהיה תיעוד של מה נתבקש ומה נעשה בהתאם.
+          כאן רושמים בעיות ובקשות שקשורות למערכת, מנהלים עליהן תכתובת פנימית (שאלה, תשובה, עדכון), ומסמנים בסוף אם טופל. גם כל בקשה שמגיעה במייל נרשמת לכאן — כדי שיהיה תיעוד אחד של מה נתבקש ומה נעשה בפועל.
         </p>
         <div class="field-grid">
           <label>כותרת<input id="idea_title"></label>
           <label>מקור
-            <select id="idea_source"><option value="manual">רעיון עצמי</option><option value="email">התקבל במייל</option></select>
+            <select id="idea_source"><option value="manual">נרשם כאן</option><option value="email">התקבל במייל</option></select>
           </label>
           <label id="idea_email_wrap" style="display:none">כתובת השולח<input id="idea_email"></label>
         </div>
-        <label style="margin-top:10px">תיאור<textarea id="idea_desc" rows="3" style="font-family:var(--font)"></textarea></label>
+        <label style="margin-top:10px">תיאור הבעיה<textarea id="idea_desc" rows="3" style="font-family:var(--font)"></textarea></label>
         <button class="primary" onclick="addIdea()"><i class="bi bi-plus-circle"></i> הוסף</button>
         <div id="ideaMsg"></div>
       </div>
       <div class="card">
-        <h3><i class="bi bi-list-task"></i> מעקב</h3>
+        <h3><i class="bi bi-list-task"></i> פניות ותכתובת</h3>
         <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap">
           <button class="secondary" style="margin:0" onclick="filterIdeas('all')">הכל</button>
-          <button class="secondary" style="margin:0" onclick="filterIdeas('new')">חדש</button>
+          <button class="secondary" style="margin:0" onclick="filterIdeas('new')">לא טופל</button>
           <button class="secondary" style="margin:0" onclick="filterIdeas('in_progress')">בטיפול</button>
-          <button class="secondary" style="margin:0" onclick="filterIdeas('done')">בוצע</button>
+          <button class="secondary" style="margin:0" onclick="filterIdeas('done')">טופל</button>
         </div>
         <div id="ideasList"></div>
       </div>
@@ -391,8 +391,8 @@
         <p>בטאב "משתמשים": יוצרים משתמש חדש עם אימייל+סיסמה זמנית, בוחרים <b>full</b> (רואה ועורך הכל) או <b>limited</b> (מסמנים בדיוק אילו שדות מותר לו לראות ולאילו קטגוריות יש לו גישה — כל השאר מוצג ריק לו, לא רק "מוסתר" בעיצוב, אלא ריק בתשובה שמגיעה מהשרת עצמו). מחיקת משתמש מוחקת גם את הכניסה שלו למערכת.</p>
       </div>
       <div class="card">
-        <h3><i class="bi bi-lightbulb"></i> רעיונות ושיפורים</h3>
-        <p>מקום למעקב אחר בקשות ושיפורים — כולל כאלה שמגיעות במייל משעיה או נעמה. כל רעיון מקבל סטטוס (חדש / בטיפול / בוצע / נדחה) שאפשר לעדכן בכל רגע, וסינון מהיר לפי סטטוס בראש הרשימה.</p>
+        <h3><i class="bi bi-chat-left-text"></i> תכתובת פנימית</h3>
+        <p>רושמים כאן כל בעיה או בקשה במערכת. לכל פנייה יש <b>תכתובת</b> משלה — לוחצים על "תכתובת" ומוסיפים הודעה, וכל הודעה נשמרת עם שם הכותב והתאריך, כך שרואים את כל ההתכתבות על אותה בעיה במקום אחד. לכל פנייה יש סימון מצב — <b>לא טופל / בטיפול / טופל / נדחה</b> — עם כפתור מהיר "סמן כטופל", וסינון לפי מצב בראש הרשימה. מחיקת פנייה מוחקת גם את התכתובת שעליה.</p>
       </div>
       <div class="card">
         <h3><i class="bi bi-journal-text"></i> יומן ביקורת</h3>
