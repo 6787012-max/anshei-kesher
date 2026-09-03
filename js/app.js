@@ -778,6 +778,18 @@ async function addRelation() {
   }
 }
 
+// "אח/אחות-של" מתאר את המגדר של אדם א' (הנושא) — לא צריך לבחור ידנית איזה מהשניים,
+// פשוט פותרים אוטומטית לפי p.gender של אדם א' כשמציגים (שעיה: "ברגע שיש מין... לא צריך
+// לבחור בנפרד"). אם המגדר לא ידוע — מציגים את שתי האפשרויות כמו שהיה.
+function resolveRelationLabel(relationType, genderA) {
+  const m = /^(.+?)\/(.+?)-(של.*)$/.exec(relationType || '');
+  if (!m) return relationType;
+  const [, male, female, suffix] = m;
+  if (genderA === 'male') return male + ' ' + suffix;
+  if (genderA === 'female') return female + ' ' + suffix;
+  return relationType;
+}
+
 async function refreshRelationsList() {
   const el = document.getElementById('relList');
   if (!el) return;
@@ -785,8 +797,9 @@ async function refreshRelationsList() {
   if (!rels.length) { el.innerHTML = ''; return; }
   const people = await AUTH.rpc('people_for_me', {}) || [];
   const byId = Object.fromEntries(people.map(p => [p.id, `${esc(p.first_name)} ${esc(p.last_name)}`]));
+  const genderById = Object.fromEntries(people.map(p => [p.id, p.gender]));
   el.innerHTML = '<div class="table-wrap"><table><tr><th>אדם א׳</th><th>קשר</th><th>אדם ב׳</th></tr>' +
-    rels.map(r => `<tr><td>${byId[r.person_a] || '?'}</td><td>${esc(r.relation_type)}</td><td>${byId[r.person_b] || '?'}</td></tr>`).join('') +
+    rels.map(r => `<tr><td>${byId[r.person_a] || '?'}</td><td>${esc(resolveRelationLabel(r.relation_type, genderById[r.person_a]))}</td><td>${byId[r.person_b] || '?'}</td></tr>`).join('') +
     '</table></div>';
 }
 
@@ -848,8 +861,8 @@ async function refreshFamiliesList() {
         .slice()
         .sort((a, b) => (b.birth_date || '').localeCompare(a.birth_date || ''))
         .forEach(c => {
-          html += `<tr><td>${esc(c.first_name)} ${esc(c.last_name)}</td><td>${esc(c.birth_date) || '-'}</td>` +
-            `<td>${calcAge(c.birth_date) ?? '-'}</td><td>${esc(c.bar_mitzva_date) || '-'}</td></tr>`;
+          html += `<tr><td>${esc(c.first_name)} ${esc(c.last_name)}</td><td>${esc(fmtDate(c.birth_date)) || '-'}</td>` +
+            `<td>${calcAge(c.birth_date) ?? '-'}</td><td>${esc(fmtDate(c.bar_mitzva_date)) || '-'}</td></tr>`;
         });
       html += '</table></div>';
     } else {
@@ -1236,7 +1249,7 @@ function renderPeopleTable(people, elId, title) {
     .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`, 'he'))
     .forEach(p => {
       html += `<tr><td><input type="checkbox" class="resultCheck_${elId}" value="${esc(p.id)}"></td>` +
-        `<td>${esc(p.first_name)} ${esc(p.last_name)}</td><td>${esc(p.id_number)}</td><td>${esc(p.birth_date)}</td>` +
+        `<td>${esc(p.first_name)} ${esc(p.last_name)}</td><td>${esc(p.id_number)}</td><td>${esc(fmtDate(p.birth_date))}</td>` +
         `<td>${calcAge(p.birth_date) ?? ''}</td><td>${esc(p.street)}</td><td>${esc(p.phone)}</td><td>${esc(p.school_class)}</td>` +
         (canEdit ? `<td><button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="openEditPerson('${p.id}','${elId}')"><i class="bi bi-pencil"></i></button></td>` : '') +
         '</tr>';
@@ -1256,7 +1269,7 @@ async function refreshFullList() {
 const EDIT_FIELDS = [
   ['first_name', 'שם פרטי'], ['last_name', 'שם משפחה'], ['id_number', 'ת"ז'],
   ['birth_date', 'תאריך לידה', 'date'], ['phone', 'טלפון'], ['phone2', 'טלפון נוסף'],
-  ['email', 'מייל'], ['street', 'רחוב'], ['city', 'עיר'], ['school_class', 'כיתה'],
+  ['email', 'מייל'], ['street', 'רחוב'], ['neighborhood', 'שכונה'], ['city', 'עיר'], ['school_class', 'כיתה'],
   ['notes', 'הערות']
 ];
 
