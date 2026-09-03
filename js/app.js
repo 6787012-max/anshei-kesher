@@ -51,24 +51,64 @@ async function extractFromPdf(file, progressEl) {
   );
   await Promise.race([renderPromise, renderTimeout]);
   const text = await runTesseractOn(canvas, progressEl);
-  return { text, viaOcr: true };
+  return { text, viaOcr: true, imageSource: canvas };
 }
 
-async function runTesseractOn(imageSource, progressEl) {
-  const worker = await Tesseract.createWorker('heb', 1, {
+async function createOcrWorker(progressEl, label) {
+  return Tesseract.createWorker('heb', 1, {
     workerPath: 'vendor/tesseract/worker.min.js',
     corePath: 'vendor/tesseract/tesseract-core-simd-lstm.wasm.js',
     langPath: 'vendor/tesseract/',
     gzip: true,
     logger: m => {
-      if (m.status === 'recognizing text') {
-        progressEl.innerHTML = `<div class="msg ok">מזהה טקסט... ${Math.round(m.progress * 100)}%</div>`;
+      if (m.status === 'recognizing text' && progressEl) {
+        progressEl.innerHTML = `<div class="msg ok">מזהה טקסט${label ? ' (' + label + ')' : ''}... ${Math.round(m.progress * 100)}%</div>`;
       }
     }
   });
+}
+
+async function runTesseractOn(imageSource, progressEl) {
+  const worker = await createOcrWorker(progressEl);
   const { data: { text } } = await worker.recognize(imageSource);
   await worker.terminate();
   return text;
+}
+
+// ⚠️ ספח עם כמה ילדים הוא פריסה דו-טורית (שני אנשים זה-לצד-זה) — OCR על
+// התמונה השלמה ממזג את שני הטורים לזרם טקסט מבולבל (שם/ת"ז/תאריך של שני
+// אנשים מתערבבים על אותה "שורה"). ניסיתי לפצל את הטקסט *אחרי* הזיהוי לפי
+// מיקום bbox של Tesseract — לא נמצא גבול-טור יציב על מסמך אמיתי (נבדק חי).
+// מה שכן עבד (נבדק חי מול ספח אמיתי): **לחתוך את התמונה עצמה לשני חצאים
+// חופפים *לפני* ה-OCR**, ולהריץ זיהוי נפרד על כל חצי — כי אז Tesseract לא
+// "רואה" בכלל את הטור השני, והתוצאה נקייה משמעותית (ת"ז יצאו קרובות בהרבה
+// למקור, שמות שלמים ולא מעורבבים). המחיר: פי-2 זמן זיהוי, ולכן זה רץ רק
+// כשמזהים שיש כנראה כמה אנשים במסמך (ראה קריאה ב-runOcr).
+async function loadAsBitmap(source) {
+  if (source instanceof HTMLCanvasElement) return createImageBitmap(source);
+  return createImageBitmap(source);
+}
+
+function cropBitmapHorizontal(bitmap, xRatioStart, xRatioEnd) {
+  const x0 = Math.round(bitmap.width * xRatioStart);
+  const x1 = Math.round(bitmap.width * xRatioEnd);
+  const canvas = document.createElement('canvas');
+  canvas.width = x1 - x0;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, x0, 0, x1 - x0, bitmap.height, 0, 0, x1 - x0, bitmap.height);
+  return canvas;
+}
+
+async function runTesseractDualColumn(imageSource, progressEl) {
+  const bitmap = await loadAsBitmap(imageSource);
+  const rightCanvas = cropBitmapHorizontal(bitmap, 0, 0.58);
+  const leftCanvas = cropBitmapHorizontal(bitmap, 0.42, 1);
+  const worker = await createOcrWorker(progressEl, 'טור 1/2');
+  const rightRes = await worker.recognize(rightCanvas);
+  progressEl.innerHTML = '<div class="msg ok">מזהה טקסט (טור 2/2)...</div>';
+  const leftRes = await worker.recognize(leftCanvas);
+  await worker.terminate();
+  return { rightText: rightRes.data.text, leftText: leftRes.data.text };
 }
 
 async function runOcr() {
@@ -82,18 +122,45 @@ async function runOcr() {
   progressEl.innerHTML = isPdf ? '<div class="msg ok">קורא PDF...</div>' : '<div class="msg ok">טוען מנוע זיהוי טקסט...</div>';
 
   try {
-    let text;
+    let text, imageSourceForRetry = null, viaOcr = true;
     if (isPdf) {
       const r = await extractFromPdf(file, progressEl);
-      text = r.text;
-      progressEl.innerHTML = r.viaOcr
-        ? '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי מה-PDF הסתיים (OCR על סריקה) — בדוק/תקן לפני שמירה</div>'
-        : '<div class="msg ok"><i class="bi bi-check2"></i> חולץ טקסט אמיתי מה-PDF (מדויק) — בדוק/תקן לפני שמירה</div>';
+      text = r.text; viaOcr = r.viaOcr; imageSourceForRetry = r.imageSource || null;
     } else {
       text = await runTesseractOn(file, progressEl);
-      progressEl.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>';
+      imageSourceForRetry = file;
     }
-    showOcrExtraction(text);
+
+    let family = extractFamilyFromOcrText(text);
+    // זוהו כמה אנשים → כנראה ספח עם ילדים, לא ת"ז בודדת. מנסים גם זיהוי
+    // דו-טורי (חיתוך התמונה לשני חצאים *לפני* OCR — נבדק חי, משמעותית מדויק
+    // יותר על מסמך כזה) ומעדיפים אותו אם הוא באמת נתן תוצאה טובה יותר/שווה.
+    // רק כשבאמת יש כמה אנשים — כדי לא להכפיל את זמן הזיהוי סתם לת"ז בודדת.
+    if (family.length > 1 && imageSourceForRetry) {
+      try {
+        progressEl.innerHTML = '<div class="msg ok">זוהו כמה אנשים — מנסה זיהוי מדויק יותר לפי טורים...</div>';
+        const { rightText, leftText } = await runTesseractDualColumn(imageSourceForRetry, progressEl);
+        // משתמשים בשם המשפחה שכבר זוהה מהמסמך המלא — מדגם-חצי קטן מדי לזהות
+        // אותו מחדש באמינות (ראה הערה ב-extractFamilyFromOcrText).
+        const knownSurname = family.find(p => p.last_name)?.last_name;
+        const dualFamily = [
+          ...extractFamilyFromOcrText(rightText, knownSurname),
+          ...extractFamilyFromOcrText(leftText, knownSurname)
+        ];
+        // לא מחליפים בשקט — הגישה הדו-טורית לפעמים מוצאת פחות אנשים בסה"כ (מישהו
+        // "נופל" בין החיתוך) גם כשהאיכות שלה גבוהה יותר בממוצע לאדם. מוסיפים את
+        // שתי הקבוצות זו לצד זו ומשאירים למשתמש לסמן/לבטל כפילויות (בדיוק בשביל
+        // זה יש checkbox על כל שורה) — עדיף עוד שורות-לבדיקה על אדם שנעלם בשקט.
+        if (dualFamily.length) {
+          family = [...family, ...dualFamily];
+        }
+      } catch (e) { /* הזיהוי הדו-טורי נכשל — נשארים עם התוצאה הרגילה, לא מפילים את הכל */ }
+    }
+
+    progressEl.innerHTML = !isPdf ? '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>'
+      : viaOcr ? '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי מה-PDF הסתיים (OCR על סריקה) — בדוק/תקן לפני שמירה</div>'
+      : '<div class="msg ok"><i class="bi bi-check2"></i> חולץ טקסט אמיתי מה-PDF (מדויק) — בדוק/תקן לפני שמירה</div>';
+    showOcrExtraction(text, family);
   } catch (e) {
     progressEl.innerHTML =
       `<div class="msg err">לא הצלחתי לזהות את הפרטים מה${isPdf ? 'קובץ' : 'תמונה'}: ${esc(e.message)}</div>` +
@@ -196,9 +263,16 @@ const FAMILY_ROLE_WORDS = {
   'אישה': { role: 'אם', gender: 'female' }, 'אשתו': { role: 'אם', gender: 'female' },
   'בן': { role: 'ילד', gender: 'male' }, 'בת': { role: 'ילד', gender: 'female' },
 };
-const OCR_HEADER_WORDS = /^(מדינת|ישראל|תעודת|זהות|משרד|הפגים|הפנים|רשות|אוכלוסין|ספח|מספר|סידורי|קרבה|מין|זכר|נקבה|זבר|בכסלו|בטבת|בתמוז|באב|בחשון|בתשרי|תשרי|המעמד|אזרחות|ישראלית|כתובת|תאריך)$/;
+// ⚠️ באג אמיתי שנתפס בבדיקה חיה: "לתעודת" (מ-"ספח לתעודת זהות") לא נתפס ע"י
+// ^(...)$ עם "תעודת" בלבד — אותיות-יחס עבריות (ל/ה/ו/ב/כ/מ/ש) מתחברות למילה
+// בלי רווח, ו-OCR לא תמיד מפריד אותן. זה גרם ל"לתעודת" להיספר בטעות כמילת-
+// השם-הנפוצה-ביותר = "שם משפחה" שגוי. לכן בודקים גם suffix, לא רק שוויון מדויק.
+const OCR_HEADER_WORDS_LIST = ['מדינת', 'ישראל', 'תעודת', 'זהות', 'משרד', 'הפגים', 'הפנים', 'רשות',
+  'אוכלוסין', 'ספח', 'מספר', 'סידורי', 'קרבה', 'מין', 'זכר', 'נקבה', 'זבר', 'בכסלו', 'בטבת', 'בתמוז',
+  'באב', 'בחשון', 'בתשרי', 'תשרי', 'המעמד', 'אזרחות', 'ישראלית', 'כתובת', 'תאריך'];
+const isHeaderWord = t => OCR_HEADER_WORDS_LIST.some(h => t === h || (t.length <= h.length + 2 && t.endsWith(h)));
 const isHebWord = t => /^[֐-׿]{2,}$/.test(t);
-const isNameWord = t => isHebWord(t) && !OCR_HEADER_WORDS.test(t) && !t.includes('ילד');
+const isNameWord = t => isHebWord(t) && !isHeaderWord(t) && !t.includes('ילד');
 
 // גישה 1 (עיקרית, אומתה מול מסמכים אמיתיים): עוגן = "זכר"/"נקבה" (שדה "מין"),
 // עם חלון מוגבל בין עוגנים סמוכים כדי לצמצם (לא לבטל — הפריסה דו-טורית)
@@ -255,21 +329,28 @@ function extractByRoleWordsPerLine(text, sharedSurname) {
   return rows;
 }
 
-function extractFamilyFromOcrText(text) {
+// knownSurname: כשקוראים את הפונקציה על *חלק* מהמסמך (למשל טור אחד מתוך
+// זיהוי דו-טורי) — המדגם קטן מדי כדי לזהות שם משפחה משותף באמינות (מילת-
+// רעש קצרה יכולה "לנצח" במקרה). עדיף להעביר שם משפחה שכבר זוהה מהמסמך
+// המלא, לא לנחש מחדש על פחות מידע.
+function extractFamilyFromOcrText(text, knownSurname) {
   const allTokens = text.split(/\s+/).filter(Boolean);
-  // שם משפחה משותף = המילה העברית (2+ תווים) הכי שכיחה במסמך כולו.
-  const wordCounts = {};
-  allTokens.forEach(t => { if (isNameWord(t)) wordCounts[t] = (wordCounts[t] || 0) + 1; });
-  let sharedSurname = null, maxCount = 0;
-  for (const [w, c] of Object.entries(wordCounts)) { if (c > maxCount) { maxCount = c; sharedSurname = w; } }
+  let sharedSurname = knownSurname || null;
+  if (!sharedSurname) {
+    // שם משפחה משותף = המילה העברית (2+ תווים) הכי שכיחה במסמך כולו.
+    const wordCounts = {};
+    allTokens.forEach(t => { if (isNameWord(t)) wordCounts[t] = (wordCounts[t] || 0) + 1; });
+    let maxCount = 0;
+    for (const [w, c] of Object.entries(wordCounts)) { if (c > maxCount) { maxCount = c; sharedSurname = w; } }
+  }
 
   let results = extractByGenderAnchors(allTokens, sharedSurname);
   if (!results.length) results = extractByRoleWordsPerLine(text, sharedSurname);
   return results;
 }
 
-function showOcrExtraction(rawText) {
-  const family = extractFamilyFromOcrText(rawText);
+function showOcrExtraction(rawText, precomputedFamily) {
+  const family = precomputedFamily || extractFamilyFromOcrText(rawText);
   if (family.length > 1) { renderOcrFamilyReview(family, rawText); return; }
 
   const guess = family[0] || extractFromOcrText(rawText);
@@ -313,8 +394,10 @@ function renderOcrFamilyReview(people, rawText) {
   resultEl.innerHTML = `
     <div class="card" style="margin-top:0">
       <p style="font-size:.82rem; color:var(--muted)">
-        זוהו <b>${people.length} אנשים</b> במסמך — כנראה ספח משפחתי, לא תעודת זהות בודדת.
-        תקן/מחק כל שורה לפי הצורך, ואז "הוסף את המשפחה המסומנת". כל שורה נבדקת בנפרד מול כפילויות קיימות.
+        זוהו <b>${people.length} שורות</b> במסמך — כנראה ספח משפחתי, לא תעודת זהות בודדת.
+        <b>ייתכן שאותו אדם מופיע פעמיים</b> (המערכת ניסתה שתי דרכי זיהוי שונות על אותה תמונה) —
+        עבור על הרשימה, בטל סימון לכפילות ולשורות שגויות, תקן שדות חסרים, ואז "הוסף את המשפחה המסומנת".
+        כל שורה מסומנת נבדקת בנפרד מול כפילויות קיימות במערכת.
       </p>
       <div class="table-wrap"><table>
         <tr><th></th><th>תפקיד</th><th>שם פרטי</th><th>שם משפחה</th><th>מגדר</th><th>ת"ז</th><th>תאריך לידה</th></tr>
