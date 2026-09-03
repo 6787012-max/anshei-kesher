@@ -244,25 +244,37 @@ function toggleAllUserCategories(check) {
   document.querySelectorAll('.u_cat').forEach(cb => { cb.checked = !!check; });
 }
 
+function toggleSeeAllCategories() {
+  const seeAll = document.getElementById('u_see_all').checked;
+  const section = document.getElementById('u_categoriesSection');
+  section.style.opacity = seeAll ? '.45' : '1';
+  document.querySelectorAll('#u_categoriesChecklist input, #u_categoriesSection button').forEach(el => { el.disabled = seeAll; });
+}
+
 async function createUser() {
   const email = val('u_email').trim();
   const password = val('u_password');
   const access_level = val('u_level');
+  const see_all_categories = document.getElementById('u_see_all').checked;
   if (!email) { showMsg('userMsg', 'יש להזין אימייל', 'err'); return; }
   if (!password || password.length < 8) { showMsg('userMsg', 'סיסמה חייבת להיות באורך 8 תווים לפחות', 'err'); return; }
   const allowed_fields = Array.from(document.querySelectorAll('.u_field:checked')).map(el => el.value);
-  const allowed_categories = Array.from(document.querySelectorAll('.u_cat:checked')).map(el => el.value);
-  if (access_level === 'limited' && !allowed_categories.length) {
-    if (!confirm('לא סימנת אף קטגוריה — המשתמש לא יראה אף אחד. להמשיך בכל זאת?')) return;
+  const allowed_categories = see_all_categories ? [] : Array.from(document.querySelectorAll('.u_cat:checked')).map(el => el.value);
+  if (access_level === 'limited' && !see_all_categories && !allowed_categories.length) {
+    if (!confirm('לא סימנת אף קטגוריה ולא "רואה את כולם" — המשתמש לא יראה אף אחד. להמשיך בכל זאת?')) return;
   }
   try {
-    const result = await callAdminFn({ action: 'create_user', email, password, access_level, allowed_fields, allowed_categories });
-    logAudit('create', 'user', result.user_id, { email, access_level });
+    const result = await callAdminFn({ action: 'create_user', email, password, access_level, allowed_fields, allowed_categories, see_all_categories });
+    logAudit('create', 'user', result.user_id, { email, access_level, see_all_categories });
     showMsg('userMsg', 'המשתמש נוצר בהצלחה. תעביר לו את הסיסמה הזמנית בערוץ מאובטח.', 'ok');
     document.getElementById('u_email').value = '';
     document.getElementById('u_password').value = '';
+    document.getElementById('u_see_all').checked = false;
+    toggleSeeAllCategories();
     toggleAllUserCategories(false);
-    refreshUsersList();
+    await refreshUsersList();
+    const newRow = document.querySelector(`#usersList tr[data-email="${CSS.escape(email)}"]`);
+    if (newRow) { newRow.scrollIntoView({ behavior: 'smooth', block: 'center' }); newRow.style.outline = '2px solid var(--accent)'; }
   } catch (e) {
     showMsg('userMsg', 'שגיאה ביצירת המשתמש: ' + e.message + '. אפשר לתקן את הפרטים ולנסות שוב, או לבטל וללכת לטאב אחר.', 'err');
   }
@@ -286,9 +298,9 @@ async function refreshUsersList() {
   const users = await AUTH.api('app_users?select=*');
   if (!users || !users.length) { el.innerHTML = '<p style="color:var(--muted)">אין משתמשים</p>'; return; }
   el.innerHTML = '<table><tr><th>אימייל</th><th>רמת גישה</th><th>שדות מותרים</th><th>קטגוריות מותרות</th><th></th></tr>' +
-    users.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.access_level)}</td>` +
+    users.map(u => `<tr data-email="${esc(u.email)}"><td>${esc(u.email)}</td><td>${esc(u.access_level)}</td>` +
       `<td style="font-size:.78rem">${esc((u.allowed_fields||[]).join(', '))}</td>` +
-      `<td style="font-size:.78rem">${esc((u.allowed_categories||[]).join(', '))}</td>` +
+      `<td style="font-size:.78rem">${u.see_all_categories ? '<span class="badge gold">רואה את כולם</span>' : esc((u.allowed_categories||[]).join(', '))}</td>` +
       `<td>${u.email === AUTH.getSession().user.email ? '' :
         `<button class="secondary" style="margin:0; font-size:.75rem; padding:4px 10px" onclick="deleteUser('${u.user_id}','${esc(u.email)}')"><i class="bi bi-trash"></i></button>`}</td></tr>`
     ).join('') + '</table>';

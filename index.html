@@ -371,14 +371,22 @@
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="aliases"> כינויים</label>
             <label style="font-weight:400"><input type="checkbox" class="u_field" value="notes"> הערות</label>
           </div>
-          <label style="margin-top:14px">קטגוריות מותרות</label>
-          <p style="color:var(--muted); font-size:.78rem; margin:4px 0 8px">בחר אילו קבוצות אנשים המשתמש הזה יראה. לא תסמן — לא יראה אף אחד.</p>
-          <div id="u_categoriesChecklist" style="display:flex; flex-wrap:wrap; gap:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); max-height:200px; overflow-y:auto">
-            <div style="color:var(--muted); font-size:.85rem">טוען קטגוריות...</div>
-          </div>
-          <div style="margin-top:6px; display:flex; gap:8px">
-            <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(true)"><i class="bi bi-check-all"></i> בחר הכל</button>
-            <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(false)"><i class="bi bi-x-square"></i> נקה הכל</button>
+          <label style="margin-top:14px; display:flex; align-items:center; gap:8px; font-weight:600">
+            <input type="checkbox" id="u_see_all" onchange="toggleSeeAllCategories()"> "ספר טלפון קהילתי" — רואה את כולם, בלי הגבלת קטגוריה
+          </label>
+          <p style="color:var(--muted); font-size:.78rem; margin:4px 0 10px">
+            מתאים להפצה רחבה בקהילה: המשתמש רואה כל איש קשר (רק את השדות שסימנת למעלה — למשל שם+טלפון בלבד), בלי לדעת שיש בכלל קטגוריות אחרות.
+          </p>
+          <div id="u_categoriesSection">
+            <label>קטגוריות מותרות</label>
+            <p style="color:var(--muted); font-size:.78rem; margin:4px 0 8px">בחר אילו קבוצות אנשים המשתמש הזה יראה. לא תסמן — לא יראה אף אחד.</p>
+            <div id="u_categoriesChecklist" style="display:flex; flex-wrap:wrap; gap:10px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); max-height:200px; overflow-y:auto">
+              <div style="color:var(--muted); font-size:.85rem">טוען קטגוריות...</div>
+            </div>
+            <div style="margin-top:6px; display:flex; gap:8px">
+              <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(true)"><i class="bi bi-check-all"></i> בחר הכל</button>
+              <button type="button" class="secondary" style="margin:0; font-size:.78rem; padding:6px 12px" onclick="toggleAllUserCategories(false)"><i class="bi bi-x-square"></i> נקה הכל</button>
+            </div>
           </div>
         </div>
         <button class="primary" onclick="createUser()"><i class="bi bi-person-plus"></i> צור משתמש</button>
