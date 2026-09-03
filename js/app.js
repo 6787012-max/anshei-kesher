@@ -148,60 +148,124 @@ function extractFromOcrText(text) {
 }
 
 // ספח ת"ז מכיל בד"כ יותר מאדם אחד (ראש משפחה + בן/בת זוג + ילדים) — לא רק
-// "תעודת זהות" בודדת. סורקים כל שורה בנפרד ומחפשים מילת-קרבה (בעל/אישה/בן/בת)
-// כדי לזהות טבלה משפחתית שלמה, לא רק שם אחד.
-// ⚠️ קריטי: \b ב-JS regex מבוסס על \w שכולל רק ASCII — הוא לא מזהה גבול מילה
-// סביב אותיות עבריות בכלל (וידאתי חי: /\bבעל\b/.test('בעל שטרן') === false).
-// לכן מזהים מילת-קרבה לפי טוקן שלם אחרי פיצול ברווחים, לא לפי \b/regex-substring
-// (וגם לא includes() גולמי — "בת" בתוך "כתובת" הייתה false positive אמיתית).
+// "תעודת זהות" בודדת.
+//
+// ⚠️ נבדק חי מול 2 ספחים אמיתיים (לא מדומים) — הכיוון הראשוני היה שגוי:
+// מסמך אמיתי לא כותב "בעל/אישה/בן/בת" ליד כל אדם — הוא כותב **שדה "מין":
+// זכר/נקבה** לכל אדם (גם בני-זוג וגם ילדים), וה-"ילד/ילדה" מופיע רק ככותרת
+// section, לא צמוד לכל שם. לכן הזיהוי העיקרי הוא לפי זכר/נקבה, לא לפי
+// בעל/אישה/בן/בת (שנשאר כגיבוי בלבד — למקרה שמסמך אחר כן משתמש בהן).
+//
+// ⚠️ קריטי: \b ב-JS regex מבוסס על \w שכולל רק ASCII — לא מזהה גבול מילה
+// סביב עברית בכלל (וידאתי חי: /\bבעל\b/.test('בעל שטרן') === false).
+// לכן תמיד טוקנים שלמים אחרי פיצול ברווחים, לא \b/substring/includes()
+// (כולל "בת" בתוך "כתובת" — false positive אמיתי שנתפס).
+//
+// ⚠️ הפריסה בספח אמיתי היא **דו-טורית** (שני אנשים זה-לצד-זה בכל "שורה"
+// חזותית) — OCR שטוח (בלי מיקום) ממזג את שני הטורים לזרם טקסט אחד מבולבל.
+// ניסיתי לפצל לפי מיקום X בפועל (bbox של Tesseract) — לא נמצא פער-טור יציב
+// במסמך אמיתי (הפריסה מורכבת מדי, לא 2 עמודות נקיות). זו מגבלה אמיתית של
+// OCR חינמי-בדפדפן על מסמך מקופל/עמוס/עם watermark — לא תוקן, מתועד ביושר.
+//
+// שיפור שכן עבד ואומת: **ולידציית ת"ז ישראלית אמיתית** (אלגוריתם הביקורת
+// הרשמי) — OCR מבלבל ספרות בת"ז כמעט תמיד, אז מציגים מספר רק אם הוא עבר
+// ולידציה (אחרת עדיף שדה ריק על מספר שגוי-אבל-משכנע).
+function isValidIsraeliId(id) {
+  if (!/^\d{1,9}$/.test(id)) return false;
+  id = id.padStart(9, '0');
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    let d = Number(id[i]) * ((i % 2) + 1);
+    if (d > 9) d -= 9;
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
+function editDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+  return dp[a.length][b.length];
+}
+
 const FAMILY_ROLE_WORDS = {
   'בעל': { role: 'אב', gender: 'male' }, 'בעלה': { role: 'אב', gender: 'male' },
   'אישה': { role: 'אם', gender: 'female' }, 'אשתו': { role: 'אם', gender: 'female' },
   'בן': { role: 'ילד', gender: 'male' }, 'בת': { role: 'ילד', gender: 'female' },
 };
-const OCR_HEADER_WORDS = /מדינת|ישראל|תעודת|זהות|משרד|הפנים|רשות|אוכלוסין|ספח|מספר\s*סידורי|קרבה|מין\b/;
+const OCR_HEADER_WORDS = /^(מדינת|ישראל|תעודת|זהות|משרד|הפגים|הפנים|רשות|אוכלוסין|ספח|מספר|סידורי|קרבה|מין|זכר|נקבה|זבר|בכסלו|בטבת|בתמוז|באב|בחשון|בתשרי|תשרי|המעמד|אזרחות|ישראלית|כתובת|תאריך)$/;
+const isHebWord = t => /^[֐-׿]{2,}$/.test(t);
+const isNameWord = t => isHebWord(t) && !OCR_HEADER_WORDS.test(t) && !t.includes('ילד');
 
-function extractFamilyFromOcrText(text) {
+// גישה 1 (עיקרית, אומתה מול מסמכים אמיתיים): עוגן = "זכר"/"נקבה" (שדה "מין"),
+// עם חלון מוגבל בין עוגנים סמוכים כדי לצמצם (לא לבטל — הפריסה דו-טורית)
+// זליגת נתונים בין שני האנשים שבאותה "שורה" חזותית.
+function extractByGenderAnchors(allTokens, sharedSurname) {
+  const isSurnameLike = t => sharedSurname && isHebWord(t) &&
+    (t === sharedSurname || (Math.abs(t.length - sharedSurname.length) <= 2 && editDistance(t, sharedSurname) <= 2));
+  const anchors = [];
+  allTokens.forEach((t, i) => {
+    if (t === 'זכר' || t === 'זבר') anchors.push({ i, gender: 'male' });
+    else if (t === 'נקבה') anchors.push({ i, gender: 'female' });
+  });
+  return anchors.map(({ i, gender }, idx) => {
+    const prevEnd = idx > 0 ? anchors[idx - 1].i + 1 : 0;
+    const before = allTokens.slice(Math.max(prevEnd, i - 12), i);
+    const nextStart = idx < anchors.length - 1 ? anchors[idx + 1].i : allTokens.length;
+    const after = allTokens.slice(i + 1, Math.min(nextStart, i + 6));
+    const isChild = allTokens.slice(Math.max(0, i - 20), i).some(t => t.includes('ילד'));
+    const nameWords = before.filter(t => isNameWord(t) && !isSurnameLike(t));
+    const idRaw = [...before, ...after].map(t => t.match(/\d{7,10}/)).filter(Boolean).map(m => m[0]);
+    let id_number = '';
+    for (const cand of idRaw) {
+      const valid = [cand, cand.slice(0, 9), cand.slice(-9), cand.slice(1, 9)].find(v => v.length >= 7 && isValidIsraeliId(v));
+      if (valid) { id_number = valid.padStart(9, '0'); break; }
+    }
+    const dateM = [...before, ...after].join(' ').match(/(\d{1,2})[.,](\d{1,2})[.,](\d{4})/);
+    let birth_date = '';
+    if (dateM) { const [, d, m, y] = dateM; birth_date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`; }
+    return { role: isChild ? 'ילד' : (gender === 'male' ? 'אב' : 'אם'), gender,
+      first_name: nameWords.join(' ') || '', last_name: sharedSurname || '', id_number, birth_date };
+  });
+}
+
+// גישה 2 (גיבוי — רק אם גישה 1 לא מצאה כלום): מסמכים שבכל זאת כותבים
+// בעל/אישה/בן/בת ליד השם, בשורה אחת.
+function extractByRoleWordsPerLine(text, sharedSurname) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const rows = [];
   for (const line of lines) {
     const tokens = line.split(/\s+/);
     let match = null;
     if (tokens.includes('ראש') && tokens.includes('משפחה')) match = { role: 'אב', gender: 'male' };
-    else {
-      const roleToken = tokens.find(t => FAMILY_ROLE_WORDS[t]);
-      if (roleToken) match = FAMILY_ROLE_WORDS[roleToken];
-    }
+    else { const rt = tokens.find(t => FAMILY_ROLE_WORDS[t]); if (rt) match = FAMILY_ROLE_WORDS[rt]; }
     if (!match) continue;
-    const idM = line.match(/\b\d{9}\b/) || line.match(/\b\d{7,8}\b/);
+    const idM = tokens.map(t => t.match(/^\d{7,10}$/)).filter(Boolean).map(m => m[0]).find(isValidIsraeliId);
     const dateM = line.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b/);
     let birth_date = '';
     if (dateM) { const [, d, m, y] = dateM; birth_date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`; }
-    const nameWords = tokens.filter(t =>
-      /^[֐-׿'"]{2,}$/.test(t) && !FAMILY_ROLE_WORDS[t] && t !== 'ראש' && t !== 'משפחה' && !OCR_HEADER_WORDS.test(t)
-    );
+    const nameWords = tokens.filter(t => isNameWord(t) && !FAMILY_ROLE_WORDS[t] && t !== sharedSurname && t !== 'ראש' && t !== 'משפחה');
     if (!nameWords.length) continue;
-    rows.push({ role: match.role, gender: match.gender, nameWords, id_number: idM ? idM[0] : '', birth_date });
+    rows.push({ role: match.role, gender: match.gender, first_name: nameWords.join(' '), last_name: sharedSurname || '',
+      id_number: idM ? idM.padStart(9, '0') : '', birth_date });
   }
-  if (!rows.length) return [];
+  return rows;
+}
 
-  // שם המשפחה בד"כ משותף לכל השורות בספח — מזהים את המילה השכיחה ביותר בין
-  // השורות ומשתמשים בה כ"שם משפחה" קבוע, במקום להניח סדר קבוע [ראשון, אחרון]
-  // שבפועל משתנה בין מסמכים (חלק מסודרים משפחה-פרטי, חלק הפוך).
+function extractFamilyFromOcrText(text) {
+  const allTokens = text.split(/\s+/).filter(Boolean);
+  // שם משפחה משותף = המילה העברית (2+ תווים) הכי שכיחה במסמך כולו.
   const wordCounts = {};
-  rows.forEach(r => r.nameWords.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; }));
-  let sharedSurname = null, maxCount = 1;
+  allTokens.forEach(t => { if (isNameWord(t)) wordCounts[t] = (wordCounts[t] || 0) + 1; });
+  let sharedSurname = null, maxCount = 0;
   for (const [w, c] of Object.entries(wordCounts)) { if (c > maxCount) { maxCount = c; sharedSurname = w; } }
 
-  return rows.map(r => {
-    if (sharedSurname && r.nameWords.includes(sharedSurname)) {
-      const rest = r.nameWords.filter(w => w !== sharedSurname);
-      return { role: r.role, gender: r.gender, first_name: rest.join(' ') || '', last_name: sharedSurname,
-        id_number: r.id_number, birth_date: r.birth_date };
-    }
-    return { role: r.role, gender: r.gender, first_name: r.nameWords[0] || '', last_name: r.nameWords.slice(1).join(' ') || '',
-      id_number: r.id_number, birth_date: r.birth_date };
-  });
+  let results = extractByGenderAnchors(allTokens, sharedSurname);
+  if (!results.length) results = extractByRoleWordsPerLine(text, sharedSurname);
+  return results;
 }
 
 function showOcrExtraction(rawText) {
