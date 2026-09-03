@@ -13,6 +13,64 @@ function esc(v) {
 
 /** ================= OCR ספח/ת"ז — רץ בדפדפן בלבד, בלי API בתשלום ================= */
 
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js';
+}
+
+// PDF.js: קודם מנסה לחלץ שכבת טקסט אמיתית (מדויק לגמרי, אין OCR בכלל) —
+// זה עובד רק ל-PDF שהופק ממחשב, לא לסריקה. אם אין טקסט אמיתי (PDF סרוק),
+// מרנדר את העמוד הראשון לתמונה (canvas) ומחזיר אותה כדי שתעבור באותו נתיב OCR
+// כמו תמונה רגילה — לא בונים נתיב זיהוי נפרד.
+async function extractFromPdf(file, progressEl) {
+  progressEl.innerHTML = '<div class="msg ok">קורא PDF...</div>';
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let fullText = '';
+  const pagesToScan = Math.min(pdf.numPages, 3);
+  for (let i = 1; i <= pagesToScan; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  if (fullText.trim().length > 20) {
+    return { text: fullText, viaOcr: false };
+  }
+  // אין שכבת טקסט משמעותית — כנראה PDF סרוק. מרנדרים עמוד 1 לתמונה ומריצים OCR עליה.
+  // ⚠️ render() נבדק חי ותקוע/איטי-מאוד בסביבות מסוימות (נצפה גם על PDF ריק
+  // לגמרי, לא קשור לתוכן) — timeout מפורש כדי שהמשתמש יקבל הודעה ברורה במקום
+  // "מזהה..." שנשאר תלוי לנצח בלי שום משוב.
+  progressEl.innerHTML = '<div class="msg ok">ה-PDF נראה סרוק (בלי שכבת טקסט) — ממיר לתמונה ומזהה...</div>';
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const renderPromise = page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  const renderTimeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('הצגת ה-PDF כתמונה נתקעה (יותר מ-20 שניות) — נסה במקום זה לצלם את הדף או לצרף תמונה/סריקה רגילה')), 20000)
+  );
+  await Promise.race([renderPromise, renderTimeout]);
+  const text = await runTesseractOn(canvas, progressEl);
+  return { text, viaOcr: true };
+}
+
+async function runTesseractOn(imageSource, progressEl) {
+  const worker = await Tesseract.createWorker('heb', 1, {
+    workerPath: 'vendor/tesseract/worker.min.js',
+    corePath: 'vendor/tesseract/tesseract-core-simd-lstm.wasm.js',
+    langPath: 'vendor/tesseract/',
+    gzip: true,
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        progressEl.innerHTML = `<div class="msg ok">מזהה טקסט... ${Math.round(m.progress * 100)}%</div>`;
+      }
+    }
+  });
+  const { data: { text } } = await worker.recognize(imageSource);
+  await worker.terminate();
+  return text;
+}
+
 async function runOcr() {
   const fileInput = document.getElementById('ocrFile');
   const file = fileInput.files[0];
@@ -20,29 +78,27 @@ async function runOcr() {
   const progressEl = document.getElementById('ocrProgress');
   const resultEl = document.getElementById('ocrResult');
   resultEl.innerHTML = '';
-  progressEl.innerHTML = '<div class="msg ok">טוען מנוע זיהוי טקסט...</div>';
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  progressEl.innerHTML = isPdf ? '<div class="msg ok">קורא PDF...</div>' : '<div class="msg ok">טוען מנוע זיהוי טקסט...</div>';
 
   try {
-    const worker = await Tesseract.createWorker('heb', 1, {
-      workerPath: 'vendor/tesseract/worker.min.js',
-      corePath: 'vendor/tesseract/tesseract-core-simd-lstm.wasm.js',
-      langPath: 'vendor/tesseract/',
-      gzip: true,
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          progressEl.innerHTML = `<div class="msg ok">מזהה טקסט... ${Math.round(m.progress * 100)}%</div>`;
-        }
-      }
-    });
-    const { data: { text } } = await worker.recognize(file);
-    await worker.terminate();
-    progressEl.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>';
+    let text;
+    if (isPdf) {
+      const r = await extractFromPdf(file, progressEl);
+      text = r.text;
+      progressEl.innerHTML = r.viaOcr
+        ? '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי מה-PDF הסתיים (OCR על סריקה) — בדוק/תקן לפני שמירה</div>'
+        : '<div class="msg ok"><i class="bi bi-check2"></i> חולץ טקסט אמיתי מה-PDF (מדויק) — בדוק/תקן לפני שמירה</div>';
+    } else {
+      text = await runTesseractOn(file, progressEl);
+      progressEl.innerHTML = '<div class="msg ok"><i class="bi bi-check2"></i> זיהוי הסתיים — בדוק/תקן לפני שמירה</div>';
+    }
     showOcrExtraction(text);
   } catch (e) {
     progressEl.innerHTML =
-      `<div class="msg err">לא הצלחתי לזהות את הפרטים מהתמונה: ${esc(e.message)}</div>` +
+      `<div class="msg err">לא הצלחתי לזהות את הפרטים מה${isPdf ? 'קובץ' : 'תמונה'}: ${esc(e.message)}</div>` +
       `<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">` +
-      `  <button class="primary" style="margin:0" onclick="retryOcr()"><i class="bi bi-arrow-clockwise"></i> נסה שוב עם תמונה אחרת</button>` +
+      `  <button class="primary" style="margin:0" onclick="retryOcr()"><i class="bi bi-arrow-clockwise"></i> נסה שוב עם קובץ אחר</button>` +
       `  <button class="secondary" style="margin:0" onclick="skipOcrToManualForm()"><i class="bi bi-pencil"></i> הזן ידנית</button>` +
       `  <button class="secondary" style="margin:0" onclick="cancelOcr()"><i class="bi bi-x-lg"></i> ביטול</button>` +
       `</div>`;
@@ -91,8 +147,68 @@ function extractFromOcrText(text) {
   return { id_number: idMatch ? idMatch[0] : '', birth_date: birthDate, first_name: firstName, last_name: lastName };
 }
 
+// ספח ת"ז מכיל בד"כ יותר מאדם אחד (ראש משפחה + בן/בת זוג + ילדים) — לא רק
+// "תעודת זהות" בודדת. סורקים כל שורה בנפרד ומחפשים מילת-קרבה (בעל/אישה/בן/בת)
+// כדי לזהות טבלה משפחתית שלמה, לא רק שם אחד.
+// ⚠️ קריטי: \b ב-JS regex מבוסס על \w שכולל רק ASCII — הוא לא מזהה גבול מילה
+// סביב אותיות עבריות בכלל (וידאתי חי: /\bבעל\b/.test('בעל שטרן') === false).
+// לכן מזהים מילת-קרבה לפי טוקן שלם אחרי פיצול ברווחים, לא לפי \b/regex-substring
+// (וגם לא includes() גולמי — "בת" בתוך "כתובת" הייתה false positive אמיתית).
+const FAMILY_ROLE_WORDS = {
+  'בעל': { role: 'אב', gender: 'male' }, 'בעלה': { role: 'אב', gender: 'male' },
+  'אישה': { role: 'אם', gender: 'female' }, 'אשתו': { role: 'אם', gender: 'female' },
+  'בן': { role: 'ילד', gender: 'male' }, 'בת': { role: 'ילד', gender: 'female' },
+};
+const OCR_HEADER_WORDS = /מדינת|ישראל|תעודת|זהות|משרד|הפנים|רשות|אוכלוסין|ספח|מספר\s*סידורי|קרבה|מין\b/;
+
+function extractFamilyFromOcrText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const rows = [];
+  for (const line of lines) {
+    const tokens = line.split(/\s+/);
+    let match = null;
+    if (tokens.includes('ראש') && tokens.includes('משפחה')) match = { role: 'אב', gender: 'male' };
+    else {
+      const roleToken = tokens.find(t => FAMILY_ROLE_WORDS[t]);
+      if (roleToken) match = FAMILY_ROLE_WORDS[roleToken];
+    }
+    if (!match) continue;
+    const idM = line.match(/\b\d{9}\b/) || line.match(/\b\d{7,8}\b/);
+    const dateM = line.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b/);
+    let birth_date = '';
+    if (dateM) { const [, d, m, y] = dateM; birth_date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`; }
+    const nameWords = tokens.filter(t =>
+      /^[֐-׿'"]{2,}$/.test(t) && !FAMILY_ROLE_WORDS[t] && t !== 'ראש' && t !== 'משפחה' && !OCR_HEADER_WORDS.test(t)
+    );
+    if (!nameWords.length) continue;
+    rows.push({ role: match.role, gender: match.gender, nameWords, id_number: idM ? idM[0] : '', birth_date });
+  }
+  if (!rows.length) return [];
+
+  // שם המשפחה בד"כ משותף לכל השורות בספח — מזהים את המילה השכיחה ביותר בין
+  // השורות ומשתמשים בה כ"שם משפחה" קבוע, במקום להניח סדר קבוע [ראשון, אחרון]
+  // שבפועל משתנה בין מסמכים (חלק מסודרים משפחה-פרטי, חלק הפוך).
+  const wordCounts = {};
+  rows.forEach(r => r.nameWords.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; }));
+  let sharedSurname = null, maxCount = 1;
+  for (const [w, c] of Object.entries(wordCounts)) { if (c > maxCount) { maxCount = c; sharedSurname = w; } }
+
+  return rows.map(r => {
+    if (sharedSurname && r.nameWords.includes(sharedSurname)) {
+      const rest = r.nameWords.filter(w => w !== sharedSurname);
+      return { role: r.role, gender: r.gender, first_name: rest.join(' ') || '', last_name: sharedSurname,
+        id_number: r.id_number, birth_date: r.birth_date };
+    }
+    return { role: r.role, gender: r.gender, first_name: r.nameWords[0] || '', last_name: r.nameWords.slice(1).join(' ') || '',
+      id_number: r.id_number, birth_date: r.birth_date };
+  });
+}
+
 function showOcrExtraction(rawText) {
-  const guess = extractFromOcrText(rawText);
+  const family = extractFamilyFromOcrText(rawText);
+  if (family.length > 1) { renderOcrFamilyReview(family, rawText); return; }
+
+  const guess = family[0] || extractFromOcrText(rawText);
   const resultEl = document.getElementById('ocrResult');
   resultEl.innerHTML = `
     <div class="card" style="margin-top:0">
@@ -105,7 +221,7 @@ function showOcrExtraction(rawText) {
       </div>
       <button class="primary" onclick="applyOcrToForm()"><i class="bi bi-arrow-down-circle"></i> מלא בטופס למטה</button>
       <details style="margin-top:10px"><summary style="cursor:pointer; color:var(--muted); font-size:.8rem">טקסט גולמי שזוהה</summary>
-        <pre style="white-space:pre-wrap; font-size:.75rem; color:var(--muted); margin-top:6px">${rawText.replace(/</g, '&lt;')}</pre>
+        <pre style="white-space:pre-wrap; font-size:.75rem; color:var(--muted); margin-top:6px">${esc(rawText)}</pre>
       </details>
     </div>`;
   document.getElementById('ocr_first').value = guess.first_name;
@@ -120,6 +236,103 @@ function applyOcrToForm() {
   document.getElementById('f_id_number').value = val('ocr_id');
   document.getElementById('f_birth_date').value = val('ocr_birth');
   document.getElementById('f_first_name').scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderOcrFamilyReview(people, rawText) {
+  const resultEl = document.getElementById('ocrResult');
+  const roleOptions = r => `<option value="אב" ${r === 'אב' ? 'selected' : ''}>אב</option>` +
+    `<option value="אם" ${r === 'אם' ? 'selected' : ''}>אם</option>` +
+    `<option value="ילד" ${r === 'ילד' ? 'selected' : ''}>ילד/ה</option>`;
+  const genderOptions = g => `<option value="">--</option>` +
+    `<option value="male" ${g === 'male' ? 'selected' : ''}>זכר</option>` +
+    `<option value="female" ${g === 'female' ? 'selected' : ''}>נקבה</option>`;
+  resultEl.innerHTML = `
+    <div class="card" style="margin-top:0">
+      <p style="font-size:.82rem; color:var(--muted)">
+        זוהו <b>${people.length} אנשים</b> במסמך — כנראה ספח משפחתי, לא תעודת זהות בודדת.
+        תקן/מחק כל שורה לפי הצורך, ואז "הוסף את המשפחה המסומנת". כל שורה נבדקת בנפרד מול כפילויות קיימות.
+      </p>
+      <div class="table-wrap"><table>
+        <tr><th></th><th>תפקיד</th><th>שם פרטי</th><th>שם משפחה</th><th>מגדר</th><th>ת"ז</th><th>תאריך לידה</th></tr>
+        ${people.map(p => `<tr>
+          <td><input type="checkbox" class="ocrFamCheck" checked></td>
+          <td><select class="ocrFamRole">${roleOptions(p.role)}</select></td>
+          <td><input class="ocrFamFirst" value="${esc(p.first_name)}" style="min-width:80px"></td>
+          <td><input class="ocrFamLast" value="${esc(p.last_name)}" style="min-width:80px"></td>
+          <td><select class="ocrFamGender">${genderOptions(p.gender)}</select></td>
+          <td><input class="ocrFamId" value="${esc(p.id_number)}" style="min-width:100px"></td>
+          <td><input class="ocrFamBirth" type="date" value="${esc(p.birth_date)}"></td>
+        </tr>`).join('')}
+      </table></div>
+      <button class="primary" onclick="importOcrFamily()"><i class="bi bi-people-fill"></i> הוסף את המשפחה המסומנת</button>
+      <button class="secondary" onclick="cancelOcr()"><i class="bi bi-x-lg"></i> ביטול</button>
+      <div id="ocrFamMsg"></div>
+      <details style="margin-top:10px"><summary style="cursor:pointer; color:var(--muted); font-size:.8rem">טקסט גולמי שזוהה</summary>
+        <pre style="white-space:pre-wrap; font-size:.75rem; color:var(--muted); margin-top:6px">${esc(rawText)}</pre>
+      </details>
+    </div>`;
+}
+
+async function importOcrFamily() {
+  const msgEl = document.getElementById('ocrFamMsg');
+  const rows = [...document.querySelectorAll('#ocrResult table tr')].slice(1);
+  const created = [], skipped = [];
+  for (const row of rows) {
+    if (!row.querySelector('.ocrFamCheck').checked) continue;
+    const role = row.querySelector('.ocrFamRole').value;
+    const first_name = row.querySelector('.ocrFamFirst').value.trim();
+    const last_name = row.querySelector('.ocrFamLast').value.trim();
+    const gender = row.querySelector('.ocrFamGender').value || null;
+    const id_number = row.querySelector('.ocrFamId').value.trim() || null;
+    const birth_date = row.querySelector('.ocrFamBirth').value || null;
+    if (!first_name || !last_name) { skipped.push(`(שורה עם שם חסר, דולגה)`); continue; }
+    try {
+      const candidates = await AUTH.rpc('find_fuzzy_candidates', { p_first_name: first_name, p_last_name: last_name, p_id_number: id_number }) || [];
+      if (candidates.length) {
+        skipped.push(`${first_name} ${last_name} (נמצא דומה קיים — לא נוסף אוטומטית, לבדוק ידנית)`);
+        continue;
+      }
+      const res = await AUTH.api('people', {
+        method: 'POST',
+        body: JSON.stringify({ first_name, last_name, gender, id_number, birth_date, role_in_family: role, source: 'ocr-family' }),
+        headers: { Prefer: 'return=representation' }
+      });
+      created.push({ ...res[0], role });
+      logAudit('create', 'person', res[0].id, { name: first_name + ' ' + last_name, via: 'ocr_family_import' });
+    } catch (e) {
+      skipped.push(`${first_name} ${last_name} (שגיאה: ${e.message})`);
+    }
+  }
+
+  // קישור המשפחה: הורים מקושרים כבני זוג (יוצר family_id משותף), ילדים מקבלים אותו family_id.
+  const father = created.find(p => p.role === 'אב');
+  const mother = created.find(p => p.role === 'אם');
+  let familyId = null;
+  try {
+    if (father && mother) {
+      await linkSpouses(father.id, mother.id);
+      const updated = (await AUTH.api(`people?id=eq.${father.id}&select=family_id`))[0];
+      familyId = updated && updated.family_id;
+    } else if (father || mother) {
+      const parent = father || mother;
+      const fam = await AUTH.api('families', {
+        method: 'POST', body: JSON.stringify({ head_of_family_id: parent.id }), headers: { Prefer: 'return=representation' }
+      });
+      familyId = fam[0].id;
+      await AUTH.api(`people?id=eq.${parent.id}`, { method: 'PATCH', body: JSON.stringify({ family_id: familyId }) });
+    }
+    if (familyId) {
+      for (const kid of created.filter(p => p.role === 'ילד')) {
+        await AUTH.api(`people?id=eq.${kid.id}`, { method: 'PATCH', body: JSON.stringify({ family_id: familyId }) });
+      }
+    }
+  } catch (e) { /* המשפחה נוצרה חלקית — האנשים עצמם כבר נשמרו, לא מפילים את הכל */ }
+
+  loadPeopleIntoSelects();
+  globalSearchCache = null;
+  let summary = created.length ? `נוספו ${created.length} אנשים למשפחה.` : 'לא נוסף אף אחד.';
+  if (skipped.length) summary += ' דולגו: ' + skipped.join('; ');
+  msgEl.innerHTML = `<div class="msg ${created.length ? 'ok' : 'err'}">${esc(summary)}</div>`;
 }
 
 /** ================= חיפוש גלובלי (בראש הדף) ================= */

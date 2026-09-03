@@ -93,11 +93,13 @@
     <!-- ===== הוספה ידנית ===== -->
     <div id="addPanel" class="panel">
       <div class="card">
-        <h3><i class="bi bi-camera"></i> מילוי אוטומטי מתמונת ת"ז / ספח</h3>
+        <h3><i class="bi bi-camera"></i> מילוי אוטומטי מתמונה או PDF (ת"ז / ספח)</h3>
         <p style="color:var(--muted); font-size:.85rem; margin-bottom:10px">
-          זיהוי טקסט רץ <b>בדפדפן שלך בלבד</b> (Tesseract.js) — התמונה לא נשלחת לשום שרת חיצוני. הדיוק בינוני, תמיד תבדוק/תתקן את השדות לפני שמירה.
+          זיהוי טקסט רץ <b>בדפדפן שלך בלבד</b> (Tesseract.js + PDF.js) — הקובץ לא נשלח לשום שרת חיצוני.
+          אפשר להעלות גם תמונה וגם קובץ PDF — אם ל-PDF יש שכבת טקסט אמיתית (לא סרוק), החילוץ ממנו מדויק
+          הרבה יותר מזיהוי תמונה. הדיוק בינוני, תמיד תבדוק/תתקן את השדות לפני שמירה.
         </p>
-        <input type="file" id="ocrFile" accept="image/*" onchange="runOcr()">
+        <input type="file" id="ocrFile" accept="image/*,.pdf,application/pdf" onchange="runOcr()">
         <div id="ocrProgress" style="margin-top:10px"></div>
         <div id="ocrResult" style="margin-top:10px"></div>
       </div>
@@ -483,6 +485,7 @@
   </div>
 
   <script src="vendor/tesseract/tesseract.min.js"></script>
+  <script src="vendor/pdfjs/pdf.min.js"></script>
   <script src="vendor/supabase/supabase.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/auth.js"></script>
